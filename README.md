@@ -472,7 +472,8 @@ Se este pipeline for útil no seu trabalho, por favor cite:
 
 ## Autores e créditos
 
-- **Rodrigo Hisashi Honda** — autor original dos módulos `rinex`, `sp3` e
+- **Rogério Hisashi Honda** (ORCID: [0000-0003-0083-5115](https://orcid.org/0000-0003-0083-5115))
+— autor dos módulos `rinex`, `sp3` e
   `tec` (2022–2023) e do pipeline completo.
 - Reorganização do repositório e limpeza de código: 2026.
 
