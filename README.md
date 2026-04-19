@@ -86,7 +86,7 @@ Pacotes Python (ver `requirements.txt`):
 ## Instalação
 
 ```bash
-git clone https://github.com/<seu-usuario>/gnss-tec-pipeline.git
+git clone https://github.com/hisashon/gnss-tec-pipeline.git
 cd gnss-tec-pipeline
 
 python -m venv .venv
@@ -464,7 +464,7 @@ Se este pipeline for útil no seu trabalho, por favor cite:
   author = {Honda, R. H.},
   title  = {gnss-tec-pipeline: A GNSS-to-TEC processing pipeline for RBMC and RAMSAC},
   year   = {2025},
-  url    = {https://github.com/<seu-usuario>/gnss-tec-pipeline}
+  url    = {https://github.com/hisashon/gnss-tec-pipeline}
 }
 ```
 
