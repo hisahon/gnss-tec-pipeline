@@ -1,0 +1,30 @@
+# --- ambiente ---
+.venv/
+venv/
+.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- dados (não versionar) ---
+*.pkl
+*.parquet
+*.zip
+*.gz
+*.Z
+*.rnx
+*.crx
+*.??o
+*.??d
+*.??n
+*.sp3
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp

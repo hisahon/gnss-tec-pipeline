@@ -1,0 +1,76 @@
+# -*- coding: utf-8 -*-
+"""Configuração central do pipeline.
+
+Substitui o antigo ``comv.py``. Lê a variável ``DB_ROOT`` do arquivo ``.env``
+e expõe helpers para montar os caminhos das subpastas usadas por todas as
+etapas do pipeline.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from datetime import datetime
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DB_ROOT = Path(os.getenv("DB_ROOT", "")).expanduser()
+if not DB_ROOT or str(DB_ROOT) == ".":
+    raise RuntimeError(
+        "DB_ROOT não está definido. Crie um arquivo .env a partir de .env.example."
+    )
+
+
+# ---------- helpers de caminho ----------
+
+def crinex_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "gnss" / "crinex" / f"{year}" / f"{doy:03d}"
+
+
+def rinex_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "gnss" / "rinex" / f"{year}" / f"{doy:03d}"
+
+
+def ephemeris_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "gnss" / "ephemeris" / f"{year}" / f"{doy:03d}"
+
+
+def station_positions_dir() -> Path:
+    return DB_ROOT / "gnss" / "station_positions"
+
+
+def tec_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "ionosphere" / "tec" / f"{year}" / f"{doy:03d}"
+
+
+def tec_pc_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "ionosphere" / "tec_pc" / f"{year}" / f"{doy:03d}"
+
+
+def tec_error_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "ionosphere" / "tec_error" / f"{year}" / f"{doy:03d}"
+
+
+# ---------- utilidades ----------
+
+def doy_to_date(year: int, doy: int) -> datetime:
+    """Converte (ano, dia-do-ano) em ``datetime``."""
+    return datetime.strptime(f"{year}-{doy:03d}", "%Y-%j")
+
+
+def gnss_week(date: datetime) -> int:
+    """Calcula o número da semana GNSS para uma dada data."""
+    gnss_epoch = datetime(1980, 1, 6)
+    return (date - gnss_epoch).days // 7
+
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configura o logging para o pipeline inteiro."""
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
