@@ -18,6 +18,7 @@ import argparse
 import gzip
 import logging
 import zipfile
+import unlzw3
 from pathlib import Path
 
 import hatanaka
@@ -45,11 +46,18 @@ def extract_archive(archive_path: Path) -> dict[str, bytes]:
     elif suffix == ".gz":
         with gzip.open(archive_path, "rb") as gz:
             out[archive_path.stem] = gz.read()
+            
+    elif suffix == ".z":  # Suporte para arquivos Unix Compress
+            with open(archive_path, "rb") as f:
+                compressed_data = f.read()
+                out[archive_path.stem] = unlzw3.unlzw(compressed_data)
 
     else:
         log.warning("Formato não suportado: %s", archive_path.name)
 
     return out
+
+
 
 
 def convert_crx_to_rnx(files: dict[str, bytes]) -> dict[str, bytes]:
