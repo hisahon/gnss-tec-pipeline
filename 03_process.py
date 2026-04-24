@@ -1,20 +1,26 @@
 # -*- coding: utf-8 -*-
 """Etapa 03 — Cálculo de TEC, metadados de estações e posições de satélite.
 
-Fluxo:
+Percorre toda a estrutura ``DB_ROOT/gnss/rinex/{year}/{doy}`` e, para cada par:
 
 1. ``process_rinex_to_pickle`` — lê todo ``.??o`` em ``rinex_dir`` e salva
-   um ``.pkl`` correspondente em ``tec_dir``.
+   um ``.pkl`` correspondente em ``tec_dir``. Pickles existentes são pulados.
 2. ``process_tec``             — para cada pickle, calcula o TEC
    ``pcarrier`` e escreve um Parquet **por PRN** em ``tec_pc_dir``
    (formato: uma coluna ``horario`` + 1 coluna por estação). Também gera
    ``SP_{year}-{doy}.parquet`` com metadados de todas as estações.
+
+   Se a estação já aparece como coluna em algum parquet por PRN do mesmo
+   dia, ela é pulada (evita reprocessamento).
+
 3. ``compute_satellite_positions`` — interpola as coordenadas do satélite
    a partir do SP3 consolidado e as adiciona aos Parquets por PRN.
 
 Uso::
 
-    python 03_process.py --year 2025 --doy 298
+    python 03_process.py                    # processa toda a árvore rinex/
+    python 03_process.py --year 2025        # processa apenas um ano
+    python 03_process.py --year 2025 --doy 298   # processa apenas um doy
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 import config
 
@@ -40,6 +47,9 @@ import tec as tc
 log = logging.getLogger("process")
 
 PRN_RE = re.compile(r"([GRECIJS]\d{2})$")
+
+# Colunas dos parquets por PRN que NÃO são nomes de estação
+NON_STATION_COLS = {"horario", "x_km", "y_km", "z_km"}
 
 
 # --------------------------------------------------------------------------
@@ -62,6 +72,27 @@ def prn_from_path(path: Path) -> str:
 def _first_valid(s: pd.Series):
     """Agg helper: primeiro valor não-nulo da série."""
     return s.dropna().iloc[0] if s.notna().any() else pd.NA
+
+
+def get_processed_stations(tec_pc_folder: Path) -> set[str]:
+    """Retorna o conjunto de nomes de estação que já aparecem como coluna em
+    pelo menos um parquet por PRN em ``tec_pc_folder``.
+
+    Lê apenas o *schema* dos arquivos Parquet (metadados), não os dados —
+    operação rápida mesmo com muitos parquets.
+    """
+    if not tec_pc_folder.exists():
+        return set()
+
+    processed: set[str] = set()
+    for pq_path in tec_pc_folder.glob("*.parquet"):
+        try:
+            schema = pq.read_schema(pq_path)
+            processed.update(set(schema.names) - NON_STATION_COLS)
+        except Exception as exc:
+            log.warning("Erro lendo schema de %s: %s", pq_path.name, exc)
+
+    return processed
 
 
 def save_prn_incremental(
@@ -125,7 +156,7 @@ def process_rinex_to_pickle(rinex_folder: Path, tec_folder: Path) -> None:
     for i, rinex_path in enumerate(files, start=1):
         out_path = tec_folder / f"{rinex_path.stem}.pkl"
         if out_path.exists():
-            log.info("[%d/%d] SKIP %s (pickle já existe)", i, total, rinex_path.name)
+            log.debug("[%d/%d] SKIP %s (pickle já existe)", i, total, rinex_path.name)
             continue
 
         try:
@@ -156,18 +187,39 @@ def process_tec(
     total = len(files)
     stations_meta: list[list] = []
 
+    # Conjunto de estações já presentes como coluna em algum parquet por PRN
+    processed_stations = get_processed_stations(tec_pc_folder)
+    if processed_stations:
+        log.info(
+            "%d estações já têm coluna nos parquets por PRN — serão puladas",
+            len(processed_stations),
+        )
+
+    skipped = 0
     for i, pkl_path in enumerate(files, start=1):
         with open(pkl_path, "rb") as f:
             dic = pickle.load(f)
 
         head = dic.pop("header", {})
+        station_name = head.get("station_name")
         xyz = head.get("xyz_geocentric", (np.nan, np.nan, np.nan))
         phi_lam_h = head.get("φλh_geodetic", (np.nan, np.nan, np.nan))
+
+        # Metadados sempre coletados (barato) para refrescar o SP ao final
         stations_meta.append([
-            head.get("station_name"),
+            station_name,
             xyz[0], xyz[1], xyz[2],
             phi_lam_h[0], phi_lam_h[1], phi_lam_h[2] / 1000.0,
         ])
+
+        # Skip: estação já é coluna em algum parquet deste DOY
+        if station_name in processed_stations:
+            skipped += 1
+            log.debug(
+                "[%d/%d] SKIP %s (%s já é coluna)",
+                i, total, pkl_path.name, station_name,
+            )
+            continue
 
         try:
             # timestamps "julianos" + cálculo de TEC pcarrier
@@ -175,26 +227,60 @@ def process_tec(
                 dic[key] = sp3.times(dic[key])
                 dic[key] = tc.tec_rinex2(dic[key], key, "pcarrier")
 
-            # salva Parquet por PRN
+            # salva Parquet por PRN (insere nova coluna com o nome da estação)
             for key, df in dic.items():
                 for prn in df["prn"].unique():
                     log.debug("Processing %s of %s", prn, pkl_path.name)
                     save_prn_incremental(
-                        tec_pc_folder, prn, df, head["station_name"], year, doy,
+                        tec_pc_folder, prn, df, station_name, year, doy,
                     )
 
             log.info("[%d/%d] TEC OK  %s", i, total, pkl_path.name)
 
         except Exception:
             shutil.move(str(pkl_path), tec_error_folder / pkl_path.name)
-            log.exception("[%d/%d] TEC FAIL %s (movido para tec_error)", i, total, pkl_path.name)
+            log.exception(
+                "[%d/%d] TEC FAIL %s (movido para tec_error)",
+                i, total, pkl_path.name,
+            )
 
-    df_sp = pd.DataFrame(
+    if skipped:
+        log.info(
+            "  → %d de %d estações já estavam processadas (puladas)",
+            skipped, total,
+        )
+
+    # --- SP file (metadados das estações) -----------------------------------
+    # Sempre une com o que já existe em disco para não perder estações
+    # previamente gravadas (em especial quando todas foram puladas).
+    new_sp_df = pd.DataFrame(
         stations_meta,
         columns=["name", "x_km", "y_km", "z_km", "ln_deg", "lt_deg", "h_km"],
-    ).sort_values("name").reset_index(drop=True)
+    )
+
+    if station_positions_file.exists():
+        try:
+            existing = pd.read_parquet(station_positions_file)
+            combined = pd.concat([existing, new_sp_df], ignore_index=True)
+            df_sp = (
+                combined.drop_duplicates(subset="name", keep="last")
+                .sort_values("name")
+                .reset_index(drop=True)
+            )
+        except Exception as exc:
+            log.warning(
+                "Erro lendo SP existente (%s), reescrevendo do zero: %s",
+                station_positions_file.name, exc,
+            )
+            df_sp = new_sp_df.sort_values("name").reset_index(drop=True)
+    else:
+        df_sp = new_sp_df.sort_values("name").reset_index(drop=True)
+
     df_sp.to_parquet(station_positions_file, index=False)
-    log.info("Metadados de estações gravados em %s", station_positions_file)
+    log.info(
+        "Metadados gravados em %s (%d estações)",
+        station_positions_file, len(df_sp),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -227,6 +313,16 @@ def compute_satellite_positions(
             continue
 
         df_prn = pd.read_parquet(pq_path)
+
+        # Skip rápido: coordenadas já computadas e sem NaN -> nada a fazer
+        if {"x_km", "y_km", "z_km"}.issubset(df_prn.columns):
+            if df_prn[["x_km", "y_km", "z_km"]].notna().all(axis=None):
+                log.debug(
+                    "[%d/%d] SKIP %s (coordenadas já computadas)",
+                    i, total, pq_path.name,
+                )
+                continue
+
         mask = (df_prn["horario"] >= ref_date) & (
             df_prn["horario"] < (ref_date + timedelta(days=1))
         )
@@ -271,26 +367,88 @@ def run(year: int, doy: int) -> None:
     tec_error_folder = config.tec_error_dir(year, doy)
     sp_file = config.station_positions_dir() / f"SP_{year}-{doy:03d}.parquet"
 
-    log.info("=== 3.1 RINEX → pickle ===")
+    # Adapter disponibiliza year/doy nos logs (precisa do formatter configurado)
+    lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
+
+    if not rinex_folder.exists():
+        lg.warning("Pasta de entrada inexistente: %s", rinex_folder)
+        return
+
+    lg.info("=== 3.1 RINEX → pickle ===")
     process_rinex_to_pickle(rinex_folder, tec_folder)
 
-    log.info("=== 3.2 TEC (pcarrier) + metadados ===")
+    lg.info("=== 3.2 TEC (pcarrier) + metadados ===")
     process_tec(tec_folder, tec_pc_folder, tec_error_folder, sp_file, year, doy)
 
-    log.info("=== 3.3 Posições dos satélites ===")
-    df_orbit = load_or_build_orbit(year, doy)
+    lg.info("=== 3.3 Posições dos satélites ===")
+    try:
+        df_orbit = load_or_build_orbit(year, doy)
+    except Exception:
+        lg.exception("Falha carregando/construindo SP3 — pulando etapa 3.3")
+        return
+
     ref_date = pd.Timestamp(config.doy_to_date(year, doy))
     compute_satellite_positions(tec_pc_folder, df_orbit, ref_date)
 
 
+def _rinex_root() -> Path:
+    """Deduz o diretório raiz de ``rinex/`` a partir de ``config.rinex_dir``.
+
+    A estrutura esperada é ``.../rinex/{year}/{doy}``; portanto subir dois
+    níveis a partir de qualquer par (year, doy) retorna a raiz.
+    """
+    return config.rinex_dir(2000, 1).parent.parent
+
+
+def discover_year_doys(year_filter: int | None = None) -> list[tuple[int, int]]:
+    """Descobre todos os pares ``(year, doy)`` existentes sob ``rinex/``.
+
+    Se ``year_filter`` for fornecido, retorna apenas os doys daquele ano.
+    """
+    root = _rinex_root()
+    if not root.exists():
+        log.error("Pasta rinex não encontrada: %s", root)
+        return []
+
+    pairs: list[tuple[int, int]] = []
+    for year_dir in sorted(root.iterdir()):
+        if not year_dir.is_dir() or not year_dir.name.isdigit():
+            continue
+        year = int(year_dir.name)
+        if year_filter is not None and year != year_filter:
+            continue
+        for doy_dir in sorted(year_dir.iterdir()):
+            if not doy_dir.is_dir() or not doy_dir.name.isdigit():
+                continue
+            doy = int(doy_dir.name)
+            pairs.append((year, doy))
+    return pairs
+
+
+def run_all(year_filter: int | None = None) -> None:
+    pairs = discover_year_doys(year_filter)
+    log.info("Encontradas %d pastas year/doy para processar", len(pairs))
+    for year, doy in pairs:
+        log.info("=== %d / doy %03d ===", year, doy)
+        run(year, doy)
+
+
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Cálculo de TEC + posições de satélite")
-    p.add_argument("--year", type=int, required=True)
-    p.add_argument("--doy", type=int, required=True)
+    p = argparse.ArgumentParser(
+        description="Cálculo de TEC + posições de satélite (toda a árvore rinex/)"
+    )
+    p.add_argument("--year", type=int, help="Filtrar por um ano específico (opcional)")
+    p.add_argument("--doy", type=int, help="Filtrar por um doy específico (requer --year)")
     return p.parse_args()
 
 
 if __name__ == "__main__":
     config.setup_logging()
     args = parse_args()
-    run(args.year, args.doy)
+
+    if args.year is not None and args.doy is not None:
+        run(args.year, args.doy)
+    elif args.year is not None:
+        run_all(year_filter=args.year)
+    else:
+        run_all()
