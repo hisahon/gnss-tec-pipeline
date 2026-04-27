@@ -6,6 +6,7 @@ venv/
 # --- Python ---
 __pycache__/
 imagens_simple_scatter/
+imagens/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
