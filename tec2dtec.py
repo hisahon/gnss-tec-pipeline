@@ -37,7 +37,7 @@ import config as cfg  # project-local config module (database paths, constants)
 # Pipeline parameters
 # ---------------------------------------------------------------------------
 SAMPLING_RATE_HZ  = 4 / 60          # 4 samples per minute (15 s sampling)
-DETREND_WIN_SEC   = 900             # moving-average window for detrending [s]
+DETREND_WIN_SEC   = 600             # moving-average window for detrending [s]
 BANDPASS_CUTOFFS  = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
 BANDPASS_ORDER    = 4
 SPIKE_DIFF_LIMIT  = 5.0             # |diff(TEC)| threshold for spike removal
@@ -352,7 +352,7 @@ def plot_tec_por_receptor_de_arquivo(file: Path, show: bool = False) -> None:
     _, year_doy, prn = base_name.split('_')
     year, doy = year_doy.split('-')
 
-    save_dir = folder_base / 'dtec' / year / doy
+    save_dir = folder_base / 'dtec_pc' / year / doy
     os.makedirs(save_dir, exist_ok=True)
     save_file = save_dir / f"dtec_{year_doy}_{prn}.parquet"
 
@@ -417,7 +417,7 @@ def plot_tec_por_receptor_de_arquivo(file: Path, show: bool = False) -> None:
             ax2.plot(s.index, y_cv, linewidth=1.2)
             ax2.set_xlabel("Time")
             ax2.set_ylabel("Detrended TEC")
-            ax2.set_ylim(-0.3, 0.3)
+            ax2.set_ylim(-1, 1)
             ax2.grid(True, linestyle=":", linewidth=0.6)
 
             # Bandpass-filtered detrended TEC.
@@ -462,8 +462,8 @@ if __name__ == "__main__":
     doy   = int(dt_in.strftime("%j"))
 
     # folder_base = Path(cv.folder_db, 'ionosphere', 'tec_pc', f'{year}', f'{doy}')
-    folder_base = cfg.dtec_pc_dir(year, doy)
+    folder_base = cfg.tec_pc_dir(year, doy)
     files = read_files(folder_base, 'parquet')
 
     for file in files:
-        plot_tec_por_receptor_de_arquivo(file=file, show=True)
+        plot_tec_por_receptor_de_arquivo(file=file, show=False)
