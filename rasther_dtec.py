@@ -55,7 +55,7 @@ import datashader.reductions as rd            # count / sum / mean per cell
 from shared.geometry import ipp_calc
 from shared.figures_rasther import plot_ipp_trajectory, plot_lat_lon_scatter_mpl
 
-from shared.config import DB_ROOT
+from shared.config import DB_ROOT, station_positions_dir, dtec_pc_dir, storms_SouthAmerica
 
 # ---------------------------------------------------------------------
 # FILE UTILITIES
@@ -499,7 +499,6 @@ def run_pipeline_and_plot(
         legacy path (local Dropbox). Only read when
         `make_storm_figure` is active.
     """
-    folder_base = Path(folder_base)
 
     # --- 1. Files to process ----------------------------------------
     files = read_files(folder_base, parquet_extension)
@@ -515,7 +514,7 @@ def run_pipeline_and_plot(
         # Default path (kept for compatibility); can be replaced via
         # the `storms_path` parameter.
         if storms_path is None:
-            storms_path = Path('C:/Users/hisas/Dropbox/python/cptec/merged/c13_2018-2025_SouthAmerica.parquet')
+            storms_path = storms_SouthAmerica()
         df_storms = pd.read_parquet(storms_path, engine="fastparquet")
         # EQUIVALENT radius in DEGREES, derived from the area (km^2):
         # assumes a circular storm and converts using ~110 km per degree.
@@ -572,11 +571,11 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # BASE_DB = Path("/home/hisashi/database/gnss/")
     # BASE_DB = Path("D:/database")
-
+    
+    year, doy = 2021, 296
     # Parquet with station positions (ECEF + lat/lon/h)
-    STATION_POSITIONS_PARQUET = DB_ROOT / "station_positions" / "SP_2021-296.parquet"
-    # Folder with dTEC parquets per PRN (one file per PRN/day)
-    FOLDER_PARQUETS = DB_ROOT / "dtec" / "2021" / "296"
+    STATION_POSITIONS_PARQUET = station_positions_dir() / "SP_2021-296.parquet"
+    FOLDER_PARQUETS = dtec_pc_dir(year, doy) 
 
     # ------------------------------------------------------------------
     # Pipeline call:
@@ -589,7 +588,7 @@ if __name__ == "__main__":
     run_pipeline_and_plot(
         folder_base=FOLDER_PARQUETS,
         station_positions_file=STATION_POSITIONS_PARQUET,
-        shell_height_km=200,
+        shell_height_km=300,
         parquet_extension="parquet",
         time_freq="15s",
         cmap="turbo",

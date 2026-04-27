@@ -58,6 +58,9 @@ def ephemeris_dir(year: int, doy: int) -> Path:
 def station_positions_dir() -> Path:
     return DB_ROOT / "gnss" / "station_positions"
 
+def storms_SouthAmerica() -> Path:
+    return DB_ROOT / "cptec" / "merged" / "c13_2018-2025_SouthAmerica.parquet"
+
 
 def tec_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "ionosphere" / "tec" / f"{year}" / f"{doy:03d}"
@@ -71,6 +74,8 @@ def dtec_pc_dir(year: int, doy: int) -> Path:
 
 def tec_error_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "ionosphere" / "tec_error" / f"{year}" / f"{doy:03d}"
+
+
 
 
 # ---------- utilidades ----------
