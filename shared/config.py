@@ -13,10 +13,27 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import DB_ROOT
 
-# DB_ROOT
-Path(DB_ROOT).expanduser()
+# place = 'home'
+# place = 'inpe'
+place = 'ssd-inpe'
+# place = 'ssd-home'
+
+if place == "home":
+    DB_ROOT='D:\database'
+    
+elif place == 'inpe':
+    DB_ROOT='/home/hisashi/database'
+    
+elif place == 'ssd-home':
+    DB_ROOT='nao sei ainda'
+    
+elif place == 'ssd-inpe':
+    DB_ROOT='/media/hisashi/ESSD/database'
+
+
+
+# Path(DB_ROOT).expanduser()
 DB_ROOT = Path(DB_ROOT).expanduser()
 if not DB_ROOT or str(DB_ROOT) == ".":
     raise RuntimeError(
