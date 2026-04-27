@@ -30,7 +30,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.signal import butter, sosfilt, sosfiltfilt, hilbert
 
-import comv as cv  # project-local config module (database paths, constants)
+import config as cfg  # project-local config module (database paths, constants)
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +60,6 @@ def read_files(folder: Path | str, extension: str) -> list[Path]:
     files = [p for p in folder.rglob('*') if p.is_file() and p.suffix.lower() == ext]
     files.sort()
     return files
-
 
 # ---------------------------------------------------------------------------
 # NaN-aware signal-processing primitives
@@ -460,9 +459,10 @@ if __name__ == "__main__":
     # Example: process every PRN parquet for one specific day.
     dt_in = datetime(2021, 10, 23, 0, 0, 0)
     year  = dt_in.year
-    doy   = dt_in.strftime("%j")
+    doy   = int(dt_in.strftime("%j"))
 
-    folder_base = Path(cv.folder_db, 'ionosphere', 'tec_pc', f'{year}', f'{doy}')
+    # folder_base = Path(cv.folder_db, 'ionosphere', 'tec_pc', f'{year}', f'{doy}')
+    folder_base = cfg.dtec_pc_dir(year, doy)
     files = read_files(folder_base, 'parquet')
 
     for file in files:

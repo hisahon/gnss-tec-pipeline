@@ -49,6 +49,8 @@ def tec_dir(year: int, doy: int) -> Path:
 def tec_pc_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "ionosphere" / "tec_pc" / f"{year}" / f"{doy:03d}"
 
+def dtec_pc_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "ionosphere" / "dtec_pc" / f"{year}" / f"{doy:03d}"
 
 def tec_error_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "ionosphere" / "tec_error" / f"{year}" / f"{doy:03d}"
