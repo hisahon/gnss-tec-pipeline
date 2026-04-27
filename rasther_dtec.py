@@ -595,24 +595,6 @@ if __name__ == "__main__":
         # cmap="seismic",
         trh=.5,
         make_simple_scatter=True,   # enable the new (v5) figure
-        make_storm_figure=True,     # enable the v4 figure (with storms)
+        make_storm_figure=False,     # enable the v4 figure (with storms)
         # storms_path=Path('C:/Users/hisas/Dropbox/python/cptec/merged/c13_2018-2025_SouthAmerica.parquet'),
     )
-
-    # ALTERNATIVE USAGE EXAMPLES:
-    #
-    # 1) Only the new figure (simple scatter), skipping the storms:
-    # run_pipeline_and_plot(
-    #     folder_base=FOLDER_PARQUETS,
-    #     station_positions_file=STATION_POSITIONS_PARQUET,
-    #     make_simple_scatter=True,
-    #     make_storm_figure=False,
-    # )
-    #
-    # 2) Only the v4 figure (with storms):
-    # run_pipeline_and_plot(
-    #     folder_base=FOLDER_PARQUETS,
-    #     station_positions_file=STATION_POSITIONS_PARQUET,
-    #     make_simple_scatter=False,
-    #     make_storm_figure=True,
-    # )
