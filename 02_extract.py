@@ -121,7 +121,7 @@ def save_files(files: dict[str, bytes], out_dir: Path) -> None:
         if isinstance(content, str):
             content = content.encode("ascii", errors="ignore")
         dest.write_bytes(content)
-        log.info("Gravado %s", dest.name)
+        # log.info("Gravado %s", dest.name)
 
 
 def predicted_outputs(archive_path: Path) -> list[str]:

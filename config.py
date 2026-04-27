@@ -13,11 +13,11 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import DB_ROOT
 
-load_dotenv()
-
-DB_ROOT = Path(os.getenv("DB_ROOT", "")).expanduser()
+# DB_ROOT
+Path(DB_ROOT).expanduser()
+DB_ROOT = Path(DB_ROOT).expanduser()
 if not DB_ROOT or str(DB_ROOT) == ".":
     raise RuntimeError(
         "DB_ROOT não está definido. Crie um arquivo .env a partir de .env.example."

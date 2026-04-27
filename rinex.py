@@ -521,8 +521,8 @@ Supports GPS, Galileo, BeiDou, GLONASS (RINEX v2 and v3 navigation files)
 
 # WGS84 / GLONASS datum constants
 # -------------------------------
-a = 6378137.00  # semi-major axis
-b = 6356752.314245  # semi-minor axis
+a = 6378137.00  # semi-major axis [meters]
+b = 6356752.314245  # semi-minor axis [meters]
 e = np.sqrt(1 - (b ** 2) / (a ** 2))
 r_e = 6371e3  # Earth mean radius in meters
 
