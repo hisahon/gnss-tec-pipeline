@@ -5,15 +5,12 @@ Created on Tue Apr 28 12:44:06 2026
 @author: hisas
 
 
-EARTHDATA_USERNAME=hisashibrase
-EARTHDATA_PASSWORD=J#YsgDB5v@UXvde
-
-
 """
 
 import earthaccess
 import os
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 from shared.config import ephemeris_dir
@@ -21,56 +18,98 @@ from shared.config import ephemeris_dir
 # Securely loads variables from the .env file
 load_dotenv()
 
+# Silencia os logs internos do earthaccess
+logging.getLogger('earthaccess').setLevel(logging.CRITICAL)
+
 def download_precise_orbits(target_date: datetime):
     """
-    Attempts to download Final SP3 files in priority order: COD, WUM, SHA, IAC.
-    target_date: datetime object
+    Downloads SP3 files for a 3-day window (target_date - 1, target_date, target_date + 1).
+    Prioritizes FIN, falling back to RAP or ULT.
+    Cleans up (deletes) lower-priority files if a higher-priority one is secured.
     """
-    # 1. GNSS Time Calculations
-    epoch_gps = datetime(1980, 1, 6)
-    gps_week = (target_date - epoch_gps).days // 7
-    doy = target_date.strftime("%j")
-    year = target_date.strftime("%Y")
     
-    # 2. Directory Setup (2-digit year format: YY-MM-DD)
-    target_directory = ephemeris_dir(int(year), int(doy))
-    os.makedirs(target_directory, exist_ok=True)
-    
-    # 3. Restricted Agency List (Priority: COD, followed by the 3 alternatives)
-    agencies = ["COD0MGXFIN", "WUM0MGXFIN", "SHA0MGXFIN", "IAC0MGXFIN"]
-    
-    print(f"--- Processing: {target_date.strftime('%Y-%m-%d')} ---")
-    print(f"GPS Week: {gps_week} | DOY: {doy}")
-    
-    # 4. Secure Login
-    # earthaccess will automatically read EARTHDATA_USERNAME and EARTHDATA_PASSWORD from your environment
     try:
         earthaccess.login(strategy="environment")
+        print("Login to Earthdata successful.\n")
     except Exception as e:
         print("Authentication Error. Check if the .env file is configured correctly.")
         return
-    
-    success = False
-    
-    # 5. Download Loop
-    for prefix in agencies:
-        file_name = f"{prefix}_{year}{doy}0000_01D_05M_ORB.SP3.gz"
-        url = f"https://cddis.nasa.gov/archive/gnss/products/{gps_week}/{file_name}"
-        
-        print(f"Trying {prefix}...")
-        
-        try:
-            earthaccess.download([url], local_path=target_directory)
-            print(f"OK: File successfully saved in ./{target_directory}/{file_name}")
-            success = True
-            break # Exits the loop as soon as the first one is downloaded
-        except Exception:
-            print(f"[{prefix}] Unavailable.")
-            continue
 
-    if not success:
-        print(f"CRITICAL: None of the files (COD, WUM, SHA, IAC) were found for this date.")
+    dates_to_process = [
+        target_date - timedelta(days=1),
+        target_date,                     
+        target_date + timedelta(days=1)  
+    ]
+    
+    epoch_gps = datetime(1980, 1, 6)
+    agencies_base = ["COD0MGX", "WUM0MGX", "SHA0MGX", "IAC0MGX"]
+    orbit_priorities = ["FIN", "RAP", "ULT"] 
+    
+    for current_date in dates_to_process:
+        gps_week = (current_date - epoch_gps).days // 7
+        doy = current_date.strftime("%j")
+        year = current_date.strftime("%Y")
+        
+        target_directory = ephemeris_dir(int(year), int(doy))
+        os.makedirs(target_directory, exist_ok=True)
+        
+        print(f"==================================================")
+        print(f"--- Processing Date: {current_date.strftime('%Y-%m-%d')} ---")
+        print(f"GPS Week: {gps_week} | DOY: {doy} | Output Dir: {target_directory}")
+        print(f"==================================================")
+        
+        day_success = False
+        
+        for base in agencies_base:
+            agency_downloaded = False
+            
+            # O enumerate nos dá o índice (i) para sabermos em qual nível de prioridade estamos
+            for i, orb_type in enumerate(orbit_priorities):
+                prefix = f"{base}{orb_type}"
+                file_name = f"{prefix}_{year}{doy}0000_01D_05M_ORB.SP3.gz"
+                file_path = os.path.join(target_directory, file_name)
+                
+                file_secured = False
+                
+                if os.path.exists(file_path):
+                    print(f"  [SKIPPED] Best available file already exists locally: {file_name}")
+                    file_secured = True
+                else:
+                    url = f"https://cddis.nasa.gov/archive/gnss/products/{gps_week}/{file_name}"
+                    print(f"  > Trying to download {prefix}...")
+                    try:
+                        earthaccess.download([url], local_path=target_directory)
+                        print(f"  [OK] File successfully saved: {file_name}")
+                        file_secured = True
+                    except Exception:
+                        pass # Falhou, o loop vai continuar para tentar a próxima prioridade
+                
+                # Se garantimos o arquivo (seja local ou via download), fazemos a limpeza
+                if file_secured:
+                    day_success = True
+                    agency_downloaded = True
+                    
+                    # --- ROTINA DE LIMPEZA (CLEANUP) ---
+                    # Pega apenas os tipos de órbita com prioridade MENOR que a atual
+                    lower_priorities = orbit_priorities[i+1:] 
+                    for lower_orb_type in lower_priorities:
+                        lower_file_name = f"{base}{lower_orb_type}_{year}{doy}0000_01D_05M_ORB.SP3.gz"
+                        lower_file_path = os.path.join(target_directory, lower_file_name)
+                        
+                        if os.path.exists(lower_file_path):
+                            try:
+                                os.remove(lower_file_path)
+                                print(f"  [CLEANUP] Deleted outdated lower-priority file: {lower_file_name}")
+                            except Exception as e:
+                                print(f"  [WARNING] Could not delete {lower_file_name}: {e}")
+                    
+                    break # Sai do loop de prioridades, pois já temos a melhor versão desta agência
+            
+            if not agency_downloaded:
+                 print(f"  [X] {base} unavailable in any format (FIN, RAP, ULT).")
 
-# Example usage integrating with datetime:
-# desired_date = datetime(2021, 7, 11)
-# download_precise_orbits(desired_date)
+        if not day_success:
+            print(f"  [CRITICAL] None of the agencies had data for {current_date.strftime('%Y-%m-%d')}.")
+        print("\n")
+        
+    print("Finished checking, downloading, and cleaning up data for the 3-day window.")
