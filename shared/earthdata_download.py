@@ -3,6 +3,12 @@
 Created on Tue Apr 28 12:44:06 2026
 
 @author: hisas
+
+
+EARTHDATA_USERNAME=hisashibrase
+EARTHDATA_PASSWORD=J#YsgDB5v@UXvde
+
+
 """
 
 import earthaccess
