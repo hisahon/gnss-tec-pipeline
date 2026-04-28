@@ -28,7 +28,7 @@ from pathlib import Path
 
 import hatanaka
 
-import config
+from shared.config import crinex_dir, rinex_dir, setup_logging
 
 log = logging.getLogger("extract")
 
@@ -170,9 +170,40 @@ def all_outputs_exist(archive_path: Path, out_dir: Path) -> bool:
     return all((out_dir / name).exists() for name in expected)
 
 
+
+def limpar_diretorio_rinex(out_dir: Path) -> None:
+    """
+    Remove arquivos indesejados da pasta rinex ao final do processamento.
+    Mantém apenas arquivos de observação (terminados em 'o' ou 'O', ex: .26o) 
+    e os formatos compactados originais.
+    """
+    if not out_dir.exists():
+        return
+        
+    removidos = 0
+    for p in out_dir.iterdir():
+        if not p.is_file():
+            continue
+            
+        nome = p.name.lower()
+        
+        # A lógica considera final 'o' (observação) ou os formatos de arquivo originais
+        manter = nome.endswith('o') or p.suffix.lower() in {'.zip', '.gz', '.z', '.crx'}
+        
+        if not manter:
+            try:
+                p.unlink()
+                removidos += 1
+            except Exception as exc:
+                log.error("Erro ao remover %s: %s", p.name, exc)
+                
+    if removidos > 0:
+        log.info("Limpeza final: %d arquivos auxiliares excluídos de %s", removidos, out_dir)
+
+
 def run(year: int, doy: int) -> None:
-    in_dir = config.crinex_dir(year, doy)
-    out_dir = config.rinex_dir(year, doy)
+    in_dir = crinex_dir(year, doy)
+    out_dir = rinex_dir(year, doy)
 
     if not in_dir.exists():
         log.warning("Pasta de entrada inexistente: %s", in_dir)
@@ -203,6 +234,9 @@ def run(year: int, doy: int) -> None:
 
     if skipped:
         log.info("  → %d de %d já estavam processados (pulados)", skipped, total)
+    
+    # Chama a função de limpeza final garantindo que a pasta do dia fique enxuta
+    limpar_diretorio_rinex(out_dir)
 
 
 def _crinex_root() -> Path:
@@ -211,7 +245,7 @@ def _crinex_root() -> Path:
     A estrutura esperada é ``.../crinex/{year}/{doy}``; portanto subir dois
     níveis a partir de qualquer par (year, doy) retorna a raiz.
     """
-    return config.crinex_dir(2000, 1).parent.parent
+    return crinex_dir(2000, 1).parent.parent
 
 
 def discover_year_doys(year_filter: int | None = None) -> list[tuple[int, int]]:
@@ -257,7 +291,7 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    config.setup_logging()
+    setup_logging()
     args = parse_args()
 
     if args.year is not None and args.doy is not None:

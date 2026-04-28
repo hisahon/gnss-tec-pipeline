@@ -14,9 +14,9 @@ from datetime import datetime
 from pathlib import Path
 
 
-# place = 'home'
+place = 'home'
 # place = 'inpe'
-place = 'ssd-inpe'
+# place = 'ssd-inpe'
 # place = 'ssd-home'
 
 if place == "home":
