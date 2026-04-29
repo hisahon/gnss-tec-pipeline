@@ -8,7 +8,8 @@ Percorre toda a estrutura ``DB_ROOT/gnss/crinex/{year}/{doy}`` e, para cada
 2. Converte o arquivo ``.??d`` (CRINEX Hatanaka) para ``.??o`` (RINEX).
 3. Grava em ``DB_ROOT/gnss/rinex/{year}/{doy}``.
 
-Arquivos cujo output final já existe são ignorados (reexecução é segura).
+Arquivos cujo RINEX de observação (``.??o`` / ``.rnx``) já existe são ignorados
+(reexecução é segura).
 
 Uso::
 
@@ -124,50 +125,38 @@ def save_files(files: dict[str, bytes], out_dir: Path) -> None:
         # log.info("Gravado %s", dest.name)
 
 
-def predicted_outputs(archive_path: Path) -> list[str]:
-    """Nomes esperados dos arquivos de saída para um dado archive.
+def expected_obs_filename(archive_path: Path) -> str | None:
+    """Deduz o nome esperado do RINEX de observação a partir do nome do archive.
 
-    - ``.gz`` / ``.Z``: nome deduzido do ``stem``; se terminar em ``d`` vira ``o``.
-    - ``.zip``: inspeciona a lista interna (leitura apenas do diretório central).
+    Não abre o arquivo: olha apenas o ``stem`` (nome sem a extensão do
+    compactado). Padrões reconhecidos:
 
-    Retorna lista vazia se não for possível prever (formato desconhecido ou
-    zip corrompido); nesse caso o arquivo é tratado como "não processado"
-    e tenta-se processá-lo normalmente.
+    - **RINEX 2 (nome curto)**: termina em ``d`` →  troca o último caractere
+      por ``o``. Ex.: ``naus0010.25d.gz`` → ``naus0010.25o``.
+    - **RINEX 3 (nome longo)**: termina em ``.crx`` → troca por ``.rnx``.
+      Ex.: ``NAUS00BRA_R_20250010000_01D_30S_MO.crx.gz`` →
+      ``NAUS00BRA_R_20250010000_01D_30S_MO.rnx``.
+
+    Retorna ``None`` se o padrão não for reconhecido.
     """
-    suffix = archive_path.suffix.lower()
+    if archive_path.suffix.lower() not in ARCHIVE_SUFFIXES:
+        return None
+    
+    inner = archive_path.stem
+    inner_lower = inner.lower()
 
-    if suffix in (".gz", ".z"):
-        inner = archive_path.stem
-        if inner.lower().endswith("d"):
-            return [inner[:-1] + "o"]
-        return [inner]
+    if inner_lower.endswith(".crx"):
+        return inner[:-4] + ".rnx"
+    
+    if inner_lower.endswith("d"):
+        return inner[:-1] + "o"
+    
+    if archive_path.name.endswith(".zip"):
+        ano = archive_path.parts[-3][-2:]
+        return archive_path.name[:-3] + ano + "o"
+    
+    return None
 
-    if suffix == ".zip":
-        try:
-            with zipfile.ZipFile(archive_path, "r") as zf:
-                names = zf.namelist()
-        except Exception as exc:
-            log.warning("Não foi possível inspecionar %s: %s", archive_path.name, exc)
-            return []
-        result = []
-        for name in names:
-            if name.endswith("/"):
-                continue
-            if name.lower().endswith("d"):
-                result.append(name[:-1] + "o")
-            else:
-                result.append(name)
-        return result
-
-    return []
-
-
-def all_outputs_exist(archive_path: Path, out_dir: Path) -> bool:
-    """True se todos os arquivos de saída previstos já estão em ``out_dir``."""
-    expected = predicted_outputs(archive_path)
-    if not expected:
-        return False
-    return all((out_dir / name).exists() for name in expected)
 
 
 
@@ -219,9 +208,13 @@ def run(year: int, doy: int) -> None:
 
     skipped = 0
     for i, archive in enumerate(archives, start=1):
-        if all_outputs_exist(archive, out_dir):
+        obs = expected_obs_filename(archive)
+        if obs and (out_dir / obs).exists():
             skipped += 1
-            log.debug("[%d/%d] %s já processado, pulando", i, total, archive.name)
+            log.debug(
+                "[%d/%d] %s já tem %s, pulando",
+                i, total, archive.name, obs,
+            )
             continue
 
         log.info("[%d/%d] %s", i, total, archive.name)

@@ -94,117 +94,117 @@ def read_sp3(file_path):
     
     return times(df_positions), prn_names
 
-def ipp_calculator(prn_xyz, sta_xyz, shell_h):
-    # Earth's mean radius in kilometers
-    re = 6371.
+# def ipp_calculator(prn_xyz, sta_xyz, shell_h):
+#     # Earth's mean radius in kilometers
+#     re = 6371.
     
-    # Convert the station's geocentric coordinates to geodetic coordinates in kilometers
-    sta_ellip = geocentric2geodetic(sta_xyz, 'km')
+#     # Convert the station's geocentric coordinates to geodetic coordinates in kilometers
+#     sta_ellip = geocentric2geodetic(sta_xyz, 'km')
     
-    # Create a DataFrame for the station's geocentric coordinates
-    sta_xyz = pd.DataFrame(sta_xyz.reshape(1, -1), columns=['x_km', 'y_km', 'z_km'])
+#     # Create a DataFrame for the station's geocentric coordinates
+#     sta_xyz = pd.DataFrame(sta_xyz.reshape(1, -1), columns=['x_km', 'y_km', 'z_km'])
 
-    # Calculate the differences in coordinates between the PRN and the station
-    dx = prn_xyz['x_km'] - sta_xyz['x_km'].item()
-    dy = prn_xyz['y_km'] - sta_xyz['y_km'].item()
-    dz = prn_xyz['z_km'] - sta_xyz['z_km'].item()
+#     # Calculate the differences in coordinates between the PRN and the station
+#     dx = prn_xyz['x_km'] - sta_xyz['x_km'].item()
+#     dy = prn_xyz['y_km'] - sta_xyz['y_km'].item()
+#     dz = prn_xyz['z_km'] - sta_xyz['z_km'].item()
     
-    # Calculate the distance between the PRN and the station
-    r = np.sqrt(dx**2 + dy**2 + dz**2)
+#     # Calculate the distance between the PRN and the station
+#     r = np.sqrt(dx**2 + dy**2 + dz**2)
 
-    # Convert geodetic latitude and longitude from degrees to radians
-    sta_lat = np.radians(sta_ellip[0])
-    sta_lon = np.radians(sta_ellip[1])
+#     # Convert geodetic latitude and longitude from degrees to radians
+#     sta_lat = np.radians(sta_ellip[0])
+#     sta_lon = np.radians(sta_ellip[1])
 
-    # Calculate components of the vector from the station to the PRN in the local North-East-Down coordinate system
-    north = -np.cos(sta_lon) * np.sin(sta_lat) * dx - np.sin(sta_lon) * np.sin(sta_lat) * dy + np.cos(sta_lat) * dz
-    east = -np.sin(sta_lon) * dx + np.cos(sta_lon) * dy
-    vertical = np.cos(sta_lon) * np.cos(sta_lat) * dx + np.sin(sta_lon) * np.cos(sta_lat) * dy + np.sin(sta_lat) * dz
+#     # Calculate components of the vector from the station to the PRN in the local North-East-Down coordinate system
+#     north = -np.cos(sta_lon) * np.sin(sta_lat) * dx - np.sin(sta_lon) * np.sin(sta_lat) * dy + np.cos(sta_lat) * dz
+#     east = -np.sin(sta_lon) * dx + np.cos(sta_lon) * dy
+#     vertical = np.cos(sta_lon) * np.cos(sta_lat) * dx + np.sin(sta_lon) * np.cos(sta_lat) * dy + np.sin(sta_lat) * dz
 
-    # Calculate the normalized vertical component
-    vertical_norm = np.sqrt((np.cos(sta_lon) * np.cos(sta_lat))**2 + (np.sin(sta_lon) * np.cos(sta_lat))**2 + (np.sin(sta_lat))**2)
+#     # Calculate the normalized vertical component
+#     vertical_norm = np.sqrt((np.cos(sta_lon) * np.cos(sta_lat))**2 + (np.sin(sta_lon) * np.cos(sta_lat))**2 + (np.sin(sta_lat))**2)
 
-    # Calculate the elevation angle in radians
-    Zang = np.arccos(vertical / (r * vertical_norm))
-    elevation2 = np.pi / 2. - Zang
+#     # Calculate the elevation angle in radians
+#     Zang = np.arccos(vertical / (r * vertical_norm))
+#     elevation2 = np.pi / 2. - Zang
 
-    # Calculate the azimuth angle in radians
-    azimuth = np.arctan2(east, north)
+#     # Calculate the azimuth angle in radians
+#     azimuth = np.arctan2(east, north)
 
-    # Calculate angle w
-    w = (np.pi / 2.) - elevation2 - np.arcsin((re / (re + shell_h)) * np.cos(elevation2))
+#     # Calculate angle w
+#     w = (np.pi / 2.) - elevation2 - np.arcsin((re / (re + shell_h)) * np.cos(elevation2))
     
-    # Calculate latitude, longitude, and elevation of the ionospheric piercing point (IPP) in degrees
-    Latpp = np.arcsin(np.sin(sta_lat) * np.cos(w) + np.cos(sta_lat) * np.sin(w) * np.cos(azimuth))
-    Lonpp = sta_lon + np.arcsin((np.sin(w) * np.sin(azimuth)) / np.cos(Latpp))
+#     # Calculate latitude, longitude, and elevation of the ionospheric piercing point (IPP) in degrees
+#     Latpp = np.arcsin(np.sin(sta_lat) * np.cos(w) + np.cos(sta_lat) * np.sin(w) * np.cos(azimuth))
+#     Lonpp = sta_lon + np.arcsin((np.sin(w) * np.sin(azimuth)) / np.cos(Latpp))
 
-    # Convert angles from radians to degrees
-    return np.degrees(Latpp), np.degrees(Lonpp), np.degrees(elevation2)
+#     # Convert angles from radians to degrees
+#     return np.degrees(Latpp), np.degrees(Lonpp), np.degrees(elevation2)
 
 
 
-def ipp_calculator_numpy(prn_xyz, sta_xyz, shell_h):
-    """
-    Calculate IPP (Ionospheric Piercing Point) latitude, longitude, and elevation angle.
+# def ipp_calculator_numpy(prn_xyz, sta_xyz, shell_h):
+#     """
+#     Calculate IPP (Ionospheric Piercing Point) latitude, longitude, and elevation angle.
     
-    Parameters:
-        prn_xyz (pd.DataFrame): Satellite positions with columns ['x_km', 'y_km', 'z_km']
-        sta_xyz (array-like): Station ECEF coordinates [x, y, z] in km
-        shell_h (float): Ionospheric shell height in km
+#     Parameters:
+#         prn_xyz (pd.DataFrame): Satellite positions with columns ['x_km', 'y_km', 'z_km']
+#         sta_xyz (array-like): Station ECEF coordinates [x, y, z] in km
+#         shell_h (float): Ionospheric shell height in km
     
-    Returns:
-        tuple: (lat_ipp_deg, lon_ipp_deg, elevation_deg)
-    """
-    # Constants
-    re = 6371.0  # Earth's radius in km
+#     Returns:
+#         tuple: (lat_ipp_deg, lon_ipp_deg, elevation_deg)
+#     """
+#     # Constants
+#     re = 6371.0  # Earth's radius in km
     
-    # Convert to NumPy arrays
-    prn_xyz = prn_xyz[['x_km', 'y_km', 'z_km']].to_numpy(dtype=float)
-    sta_xyz = np.array(sta_xyz, dtype=float).reshape(1, -1)
+#     # Convert to NumPy arrays
+#     prn_xyz = prn_xyz[['x_km', 'y_km', 'z_km']].to_numpy(dtype=float)
+#     sta_xyz = np.array(sta_xyz, dtype=float).reshape(1, -1)
     
-    # Convert station ECEF to geodetic
-    sta_ellip = geocentric2geodetic(sta_xyz.flatten(), 'km')
-    sta_lat = np.radians(np.array(sta_ellip[0], dtype=float))
-    sta_lon = np.radians(np.array(sta_ellip[1], dtype=float))
+#     # Convert station ECEF to geodetic
+#     sta_ellip = geocentric2geodetic(sta_xyz.flatten(), 'km')
+#     sta_lat = np.radians(np.array(sta_ellip[0], dtype=float))
+#     sta_lon = np.radians(np.array(sta_ellip[1], dtype=float))
     
-    # Differences between satellite and station
-    dx = prn_xyz[:, 0] - sta_xyz[0, 0]
-    dy = prn_xyz[:, 1] - sta_xyz[0, 1]
-    dz = prn_xyz[:, 2] - sta_xyz[0, 2]
+#     # Differences between satellite and station
+#     dx = prn_xyz[:, 0] - sta_xyz[0, 0]
+#     dy = prn_xyz[:, 1] - sta_xyz[0, 1]
+#     dz = prn_xyz[:, 2] - sta_xyz[0, 2]
     
-    # Distance
-    r = np.sqrt(dx**2 + dy**2 + dz**2)
+#     # Distance
+#     r = np.sqrt(dx**2 + dy**2 + dz**2)
     
-    # Local NEU coordinates
-    north = -np.cos(sta_lon) * np.sin(sta_lat) * dx - np.sin(sta_lon) * np.sin(sta_lat) * dy + np.cos(sta_lat) * dz
-    east = -np.sin(sta_lon) * dx + np.cos(sta_lon) * dy
-    vertical = (np.cos(sta_lon) * np.cos(sta_lat) * dx +
-                np.sin(sta_lon) * np.cos(sta_lat) * dy +
-                np.sin(sta_lat) * dz)
+#     # Local NEU coordinates
+#     north = -np.cos(sta_lon) * np.sin(sta_lat) * dx - np.sin(sta_lon) * np.sin(sta_lat) * dy + np.cos(sta_lat) * dz
+#     east = -np.sin(sta_lon) * dx + np.cos(sta_lon) * dy
+#     vertical = (np.cos(sta_lon) * np.cos(sta_lat) * dx +
+#                 np.sin(sta_lon) * np.cos(sta_lat) * dy +
+#                 np.sin(sta_lat) * dz)
     
-    vertical_norm = np.sqrt((np.cos(sta_lon) * np.cos(sta_lat))**2 +
-                            (np.sin(sta_lon) * np.cos(sta_lat))**2 +
-                            (np.sin(sta_lat))**2)
+#     vertical_norm = np.sqrt((np.cos(sta_lon) * np.cos(sta_lat))**2 +
+#                             (np.sin(sta_lon) * np.cos(sta_lat))**2 +
+#                             (np.sin(sta_lat))**2)
     
-    # Elevation angle
-    cos_zang = np.clip(vertical / (r * vertical_norm), -1.0, 1.0)
-    Zang = np.arccos(cos_zang)
-    elevation = np.pi / 2.0 - Zang
+#     # Elevation angle
+#     cos_zang = np.clip(vertical / (r * vertical_norm), -1.0, 1.0)
+#     Zang = np.arccos(cos_zang)
+#     elevation = np.pi / 2.0 - Zang
     
-    # Azimuth
-    azimuth = np.arctan2(east, north)
+#     # Azimuth
+#     azimuth = np.arctan2(east, north)
     
-    # Angle w
-    sin_w = (re / (re + shell_h)) * np.cos(elevation)
-    sin_w = np.clip(sin_w, -1.0, 1.0)
-    w = (np.pi / 2.0) - elevation - np.arcsin(sin_w)
+#     # Angle w
+#     sin_w = (re / (re + shell_h)) * np.cos(elevation)
+#     sin_w = np.clip(sin_w, -1.0, 1.0)
+#     w = (np.pi / 2.0) - elevation - np.arcsin(sin_w)
     
-    # IPP coordinates
-    Latpp = np.arcsin(np.sin(sta_lat) * np.cos(w) + np.cos(sta_lat) * np.sin(w) * np.cos(azimuth))
-    Lonpp = sta_lon + np.arcsin((np.sin(w) * np.sin(azimuth)) / np.cos(Latpp))
+#     # IPP coordinates
+#     Latpp = np.arcsin(np.sin(sta_lat) * np.cos(w) + np.cos(sta_lat) * np.sin(w) * np.cos(azimuth))
+#     Lonpp = sta_lon + np.arcsin((np.sin(w) * np.sin(azimuth)) / np.cos(Latpp))
     
-    # Convert to degrees
-    return (np.degrees(Latpp), np.degrees(Lonpp), np.degrees(elevation))
+#     # Convert to degrees
+#     return (np.degrees(Latpp), np.degrees(Lonpp), np.degrees(elevation))
 
 # def ipp_calculator(prn_xyz, sta_xyz, shell_h):
     
