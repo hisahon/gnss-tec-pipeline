@@ -75,7 +75,7 @@ if __name__ == "__main__":
         "Etapa 3.1 — Conversão RINEX → pickle"
     ).parse_args()
 
-    pairs = resolve_pairs(args)
+    pairs = resolve_pairs(args, 'rinexRAWReferenceFolder')
     log.info("Encontradas %d pastas year/doy para processar", len(pairs))
     for year, doy in pairs:
         log.info("=== %d / doy %03d ===", year, doy)

@@ -19,7 +19,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from shared.config import rinex_dir
+from shared.config import crinex_dir, rinex_dir, tec_dir, tec_pc_dir
 
 log = logging.getLogger("process.utils")
 
@@ -28,18 +28,37 @@ log = logging.getLogger("process.utils")
 # Descoberta de pares (year, doy)
 # --------------------------------------------------------------------------
 
-def _rinex_root() -> Path:
+def _folder_root(referencefolder: str) -> Path:
     """Deduz o diretório raiz de ``rinex/`` a partir de ``config.rinex_dir``.
 
     A estrutura esperada é ``.../rinex/{year}/{doy}``; portanto subir dois
     níveis a partir de qualquer par (year, doy) retorna a raiz.
     """
-    return rinex_dir(2000, 1).parent.parent
+    
+    referencefolder = referencefolder.lower()
+    
+    if referencefolder == "crinexreferencefolder":
+        return crinex_dir(2000, 1).parent.parent
+    
+    if referencefolder == "rinexrawreferencefolder":
+        return rinex_dir(2000, 1).parent.parent
+    
+    if referencefolder == "rinexpklreferencefolder":
+        return tec_dir(2000, 1).parent.parent
+    
+    if referencefolder == "tecrawreferencefolder":
+        return tec_dir(2000, 1).parent.parent
+    
+    if referencefolder == "tecpcreferencefolder":
+        return tec_pc_dir(2000, 1).parent.parent
+    
+
 
 
 def discover_year_doys(
     year_filter: int | None = None,
     doy_filter: int | None = None,
+    referencefolder: str = "Crinex",
 ) -> list[tuple[int, int]]:
     """Descobre pares ``(year, doy)`` existentes sob ``rinex/``.
 
@@ -47,7 +66,7 @@ def discover_year_doys(
       - ``year_filter``: apenas o ano dado.
       - ``doy_filter``: apenas o doy dado (requer ``year_filter``).
     """
-    root = _rinex_root()
+    root = _folder_root(referencefolder)
     if not root.exists():
         log.error("Pasta rinex não encontrada: %s", root)
         return []
@@ -81,7 +100,8 @@ def build_arg_parser(description: str) -> argparse.ArgumentParser:
     return p
 
 
-def resolve_pairs(args: argparse.Namespace) -> list[tuple[int, int]]:
+def resolve_pairs(args: argparse.Namespace,
+                  referencefolder: str) -> list[tuple[int, int]]:
     """Aplica os filtros do CLI e devolve os pares ``(year, doy)`` a processar.
 
     Valida a combinação ``--doy`` sem ``--year`` (proibida).
@@ -89,7 +109,7 @@ def resolve_pairs(args: argparse.Namespace) -> list[tuple[int, int]]:
     if args.doy is not None and args.year is None:
         raise SystemExit("--doy requer --year.")
 
-    pairs = discover_year_doys(args.year, args.doy)
+    pairs = discover_year_doys(args.year, args.doy, referencefolder)
 
     if not pairs:
         log.warning(

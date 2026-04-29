@@ -177,7 +177,7 @@ if __name__ == "__main__":
         "Etapa 3.2 — Cálculo de TEC (pcarrier) por PRN + metadados"
     ).parse_args()
 
-    pairs = resolve_pairs(args)
+    pairs = resolve_pairs(args, 'rinexPKLReferenceFolder')
     log.info("Encontradas %d pastas year/doy para processar", len(pairs))
     for year, doy in pairs:
         log.info("=== %d / doy %03d ===", year, doy)

@@ -30,6 +30,7 @@ from pathlib import Path
 import hatanaka
 
 from shared.config import crinex_dir, rinex_dir, setup_logging
+from shared.pipeline_utils import discover_year_doys
 
 log = logging.getLogger("extract")
 
@@ -232,42 +233,9 @@ def run(year: int, doy: int) -> None:
     limpar_diretorio_rinex(out_dir)
 
 
-def _crinex_root() -> Path:
-    """Deduz o diretório raiz de ``crinex/`` a partir de ``config.crinex_dir``.
-
-    A estrutura esperada é ``.../crinex/{year}/{doy}``; portanto subir dois
-    níveis a partir de qualquer par (year, doy) retorna a raiz.
-    """
-    return crinex_dir(2000, 1).parent.parent
-
-
-def discover_year_doys(year_filter: int | None = None) -> list[tuple[int, int]]:
-    """Descobre todos os pares ``(year, doy)`` existentes sob ``crinex/``.
-
-    Se ``year_filter`` for fornecido, retorna apenas os doys daquele ano.
-    """
-    root = _crinex_root()
-    if not root.exists():
-        log.error("Pasta crinex não encontrada: %s", root)
-        return []
-
-    pairs: list[tuple[int, int]] = []
-    for year_dir in sorted(root.iterdir()):
-        if not year_dir.is_dir() or not year_dir.name.isdigit():
-            continue
-        year = int(year_dir.name)
-        if year_filter is not None and year != year_filter:
-            continue
-        for doy_dir in sorted(year_dir.iterdir()):
-            if not doy_dir.is_dir() or not doy_dir.name.isdigit():
-                continue
-            doy = int(doy_dir.name)
-            pairs.append((year, doy))
-    return pairs
-
 
 def run_all(year_filter: int | None = None) -> None:
-    pairs = discover_year_doys(year_filter)
+    pairs = discover_year_doys(year_filter, referencefolder='crinexReferenceFolder')
     log.info("Encontradas %d pastas year/doy para processar", len(pairs))
     for year, doy in pairs:
         log.info("=== %d / doy %03d ===", year, doy)
