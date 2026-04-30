@@ -1,68 +1,177 @@
 # -*- coding: utf-8 -*-
-"""Etapa 3.c — Download dos arquivos SP3 brutos (efemérides precisas).
+#==============================================================================
+#--- @author: Honda, R. H., on: Fri Feb 24 14:03:55 2023
+#==============================================================================
 
-Baixa os arquivos SP3 ``Final`` do CDDIS para cada ``(year, doy)``,
-seguindo a ordem de prioridade ``COD → WUM → SHA → IAC``. Para no
-primeiro provedor que responder com sucesso. Idempotente: se o arquivo
-descomprimido já existe em ``ephemeris_dir(year, doy)``, pula.
+"""Stage 3.c — Download SP3 + consolidate + project satellite positions.
 
-Pré-requisito: variáveis ``EARTHDATA_USERNAME`` e ``EARTHDATA_PASSWORD``
-disponíveis (via ``.env`` ou ambiente).
+For each (year, doy):
+  1) Download "Final" SP3 from CDDIS (priority: COD -> WUM -> SHA -> IAC).
+  2) Concat days (-1, 0, +1, +2) into `{year}{doy}_complete.pkl` for
+     edge-safe orbit interpolation downstream.
+  3) For each per-PRN parquet of the day, interpolate satellite
+     positions (x_km, y_km, z_km) from the orbit pickle and overwrite.
 
-Uso::
+Phases 1 and 2 are idempotent. Phase 3 always recomputes (overwrites).
+Requires EARTHDATA_USERNAME / EARTHDATA_PASSWORD.
 
-    python 03c_download_sp3.py                       # toda a árvore
-    python 03c_download_sp3.py --year 2025           # ano inteiro
-    python 03c_download_sp3.py --year 2025 --doy 298 # um único dia
+Usage:
+    python 03c_download_sp3.py
+    python 03c_download_sp3.py --year 2025
+    python 03c_download_sp3.py --year 2025 --doy 298
 """
 
 from __future__ import annotations
 
 import logging
-from shared.config import ephemeris_dir, doy_to_date, setup_logging
+from datetime import date, datetime
+from pathlib import Path
 
+import pandas as pd
+
+from shared import sp3
+from shared.config import (
+    ephemeris_dir,
+    doy_to_date,
+    setup_logging,
+    tec_pc_dir,  # adjust the import name if your codebase uses a different one
+)
 from shared.earthdata_download import download_precise_orbits
 from shared.pipeline_utils import build_arg_parser, resolve_pairs
 
 log = logging.getLogger("process.download_sp3")
 
+# `date` (not `datetime`) so subtraction works with either type.
+GPS_EPOCH = date(1980, 1, 6)
 
-# --------------------------------------------------------------------------
-# Núcleo
-# --------------------------------------------------------------------------
+
+def calculate_gnss_week(dt) -> int:
+    """Full weeks elapsed since the GPS epoch (1980-01-06)."""
+    d = dt.date() if isinstance(dt, datetime) else dt
+    return (d - GPS_EPOCH).days // 7
+
+
+def prn_from_file_path(path: Path) -> str:
+    """PRN id is the first underscore-separated token of the file stem."""
+    # Replace with your shared helper if you already have one.
+    return path.stem.split("_")[0]
+
+
+# ---------------------------------------------------------------------------
+# Core
+# ---------------------------------------------------------------------------
 
 def run(year: int, doy: int) -> None:
-    """Baixa o SP3 do dia, se ainda não estiver em disco."""
     lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
     eph_dir = ephemeris_dir(year, doy)
     eph_dir.mkdir(parents=True, exist_ok=True)
 
-    # Skip se já existe algum SP3 (descomprimido) na pasta
-    existing = list(eph_dir.glob("*.SP3")) + list(eph_dir.glob("*.sp3"))
-    if existing:
-        lg.info("SKIP (já existe SP3 em %s)", eph_dir)
+    # --- Phase 1: download (skip if already on disk) ---
+    # existing = list(eph_dir.glob("*.SP3")) + list(eph_dir.glob("*.sp3"))
+    sp3_ncomplete_name = f"{year}{doy:03d}_complete.pkl"
+    sp3_file = eph_dir / sp3_ncomplete_name
+    
+    if sp3_file:
+        lg.info("%s already on ready", sp3_ncomplete_name)
+    else:
+        lg.info("=== 3.c SP3 download ===")
+        try:
+            download_precise_orbits(doy_to_date(year, doy))
+        except Exception:
+            # Bail out: no point consolidating a failed download.
+            lg.exception("SP3 download failed")
+            return
+
+    # # --- Phase 2: consolidate -1..+2 days into one pickle ---
+    # sp3_file = eph_dir / f"{year}{doy:03d}_complete.pkl"
+    # if not sp3_file.exists():
+        dt_in = doy_to_date(year, doy)
+        # concat_all wants the base folder, not the day folder.
+        eph_folder = eph_dir.parent.parent
+        lg.info("GNSS week %d — building %s",
+                calculate_gnss_week(dt_in), sp3_file.name)
+        try:
+            df_orbit = sp3.concat_all(str(eph_folder), dt_in)
+            # Don't write an empty pickle — would poison future skip checks.
+            if df_orbit.empty:
+                lg.warning("Empty orbit DataFrame — pickle not written")
+                return
+            df_orbit.to_pickle(sp3_file)
+            lg.info("Pickle written: %s (%d rows)", sp3_file, len(df_orbit))
+        except Exception:
+            lg.exception("SP3 consolidation failed")
+            return
+    # else:
+    #     lg.info("SKIP consolidation (%s exists)", sp3_file.name)
+
+    # --- Phase 3: project satellite positions onto per-PRN parquets ---
+    # satellite_positions(year, doy)
+
+
+def satellite_positions(year: int, doy: int) -> None:
+    """Add interpolated (x_km, y_km, z_km) to each per-PRN parquet of the day."""
+    lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
+
+    sp3_file = ephemeris_dir(year, doy) / f"{year}{doy:03d}_complete.pkl"
+    if not sp3_file.exists():
+        lg.warning("SKIP positions (orbit pickle missing)")
         return
 
-    target_date = doy_to_date(year, doy)
-    lg.info("=== 3.c Download SP3 ===")
-    try:
-        download_precise_orbits(target_date)
-    except Exception:
-        lg.exception("Falha no download do SP3")
+    parquet_dir = tec_pc_dir(year, doy)
+    files = sorted(parquet_dir.glob("*.parquet"))
+    if not files:
+        lg.warning("SKIP positions (no parquets in %s)", parquet_dir)
+        return
+
+    df_orbit = pd.read_pickle(sp3_file)
+    dt_in = pd.Timestamp(doy_to_date(year, doy))
+    # ref_date = start of orbit window (-1d) so seconds stay non-negative.
+    ref_date = dt_in - pd.Timedelta(days=1)
+    df_orbit["sec"] = (
+        (df_orbit["horario"] - ref_date).dt.total_seconds().astype(int).to_numpy()
+    )
+
+    for parquet in files:
+        prn = prn_from_file_path(parquet)
+
+        # Drop dup timestamps: interpolators reject non-strictly-increasing x.
+        df_orb_prn = (
+            df_orbit[df_orbit["prn"] == prn]
+            .sort_values("sec")
+            .drop_duplicates(subset=["sec"], keep="first")
+        )
+        if df_orb_prn.empty:
+            lg.info("%s missing in orbit file", prn)
+            continue
+
+        df_prn = pd.read_parquet(parquet)
+        # Keep only the target day; orbit pickle covers a wider window.
+        df_prn = df_prn[
+            (df_prn["horario"] >= dt_in)
+            & (df_prn["horario"] < dt_in + pd.Timedelta(days=1))
+        ]
+
+        try:
+            df_prn = sp3.satellite_coordinates(df_prn, df_orb_prn, prn, ref_date)
+            df_prn.to_parquet(parquet, index=False)
+            lg.info("%s positions saved", parquet.name)
+        except Exception:
+            lg.exception("%s position calc failed", prn)
 
 
-# --------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # CLI
-# --------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     setup_logging()
     args = build_arg_parser(
-        "Etapa 3.c — Download de SP3 brutos do CDDIS"
+        "Stage 3.c — Download SP3 from CDDIS + consolidate + project positions"
     ).parse_args()
 
     pairs = resolve_pairs(args, referencefolder="tecRAWReferenceFolder")
-    log.info("Encontradas %d pastas year/doy para processar", len(pairs))
+    log.info("Found %d year/doy folders to process", len(pairs))
+    # pairs = [(2025,317)]
     for year, doy in pairs:
         log.info("=== %d / doy %03d ===", year, doy)
         run(year, doy)

@@ -94,160 +94,6 @@ def read_sp3(file_path):
     
     return times(df_positions), prn_names
 
-# def ipp_calculator(prn_xyz, sta_xyz, shell_h):
-#     # Earth's mean radius in kilometers
-#     re = 6371.
-    
-#     # Convert the station's geocentric coordinates to geodetic coordinates in kilometers
-#     sta_ellip = geocentric2geodetic(sta_xyz, 'km')
-    
-#     # Create a DataFrame for the station's geocentric coordinates
-#     sta_xyz = pd.DataFrame(sta_xyz.reshape(1, -1), columns=['x_km', 'y_km', 'z_km'])
-
-#     # Calculate the differences in coordinates between the PRN and the station
-#     dx = prn_xyz['x_km'] - sta_xyz['x_km'].item()
-#     dy = prn_xyz['y_km'] - sta_xyz['y_km'].item()
-#     dz = prn_xyz['z_km'] - sta_xyz['z_km'].item()
-    
-#     # Calculate the distance between the PRN and the station
-#     r = np.sqrt(dx**2 + dy**2 + dz**2)
-
-#     # Convert geodetic latitude and longitude from degrees to radians
-#     sta_lat = np.radians(sta_ellip[0])
-#     sta_lon = np.radians(sta_ellip[1])
-
-#     # Calculate components of the vector from the station to the PRN in the local North-East-Down coordinate system
-#     north = -np.cos(sta_lon) * np.sin(sta_lat) * dx - np.sin(sta_lon) * np.sin(sta_lat) * dy + np.cos(sta_lat) * dz
-#     east = -np.sin(sta_lon) * dx + np.cos(sta_lon) * dy
-#     vertical = np.cos(sta_lon) * np.cos(sta_lat) * dx + np.sin(sta_lon) * np.cos(sta_lat) * dy + np.sin(sta_lat) * dz
-
-#     # Calculate the normalized vertical component
-#     vertical_norm = np.sqrt((np.cos(sta_lon) * np.cos(sta_lat))**2 + (np.sin(sta_lon) * np.cos(sta_lat))**2 + (np.sin(sta_lat))**2)
-
-#     # Calculate the elevation angle in radians
-#     Zang = np.arccos(vertical / (r * vertical_norm))
-#     elevation2 = np.pi / 2. - Zang
-
-#     # Calculate the azimuth angle in radians
-#     azimuth = np.arctan2(east, north)
-
-#     # Calculate angle w
-#     w = (np.pi / 2.) - elevation2 - np.arcsin((re / (re + shell_h)) * np.cos(elevation2))
-    
-#     # Calculate latitude, longitude, and elevation of the ionospheric piercing point (IPP) in degrees
-#     Latpp = np.arcsin(np.sin(sta_lat) * np.cos(w) + np.cos(sta_lat) * np.sin(w) * np.cos(azimuth))
-#     Lonpp = sta_lon + np.arcsin((np.sin(w) * np.sin(azimuth)) / np.cos(Latpp))
-
-#     # Convert angles from radians to degrees
-#     return np.degrees(Latpp), np.degrees(Lonpp), np.degrees(elevation2)
-
-
-
-# def ipp_calculator_numpy(prn_xyz, sta_xyz, shell_h):
-#     """
-#     Calculate IPP (Ionospheric Piercing Point) latitude, longitude, and elevation angle.
-    
-#     Parameters:
-#         prn_xyz (pd.DataFrame): Satellite positions with columns ['x_km', 'y_km', 'z_km']
-#         sta_xyz (array-like): Station ECEF coordinates [x, y, z] in km
-#         shell_h (float): Ionospheric shell height in km
-    
-#     Returns:
-#         tuple: (lat_ipp_deg, lon_ipp_deg, elevation_deg)
-#     """
-#     # Constants
-#     re = 6371.0  # Earth's radius in km
-    
-#     # Convert to NumPy arrays
-#     prn_xyz = prn_xyz[['x_km', 'y_km', 'z_km']].to_numpy(dtype=float)
-#     sta_xyz = np.array(sta_xyz, dtype=float).reshape(1, -1)
-    
-#     # Convert station ECEF to geodetic
-#     sta_ellip = geocentric2geodetic(sta_xyz.flatten(), 'km')
-#     sta_lat = np.radians(np.array(sta_ellip[0], dtype=float))
-#     sta_lon = np.radians(np.array(sta_ellip[1], dtype=float))
-    
-#     # Differences between satellite and station
-#     dx = prn_xyz[:, 0] - sta_xyz[0, 0]
-#     dy = prn_xyz[:, 1] - sta_xyz[0, 1]
-#     dz = prn_xyz[:, 2] - sta_xyz[0, 2]
-    
-#     # Distance
-#     r = np.sqrt(dx**2 + dy**2 + dz**2)
-    
-#     # Local NEU coordinates
-#     north = -np.cos(sta_lon) * np.sin(sta_lat) * dx - np.sin(sta_lon) * np.sin(sta_lat) * dy + np.cos(sta_lat) * dz
-#     east = -np.sin(sta_lon) * dx + np.cos(sta_lon) * dy
-#     vertical = (np.cos(sta_lon) * np.cos(sta_lat) * dx +
-#                 np.sin(sta_lon) * np.cos(sta_lat) * dy +
-#                 np.sin(sta_lat) * dz)
-    
-#     vertical_norm = np.sqrt((np.cos(sta_lon) * np.cos(sta_lat))**2 +
-#                             (np.sin(sta_lon) * np.cos(sta_lat))**2 +
-#                             (np.sin(sta_lat))**2)
-    
-#     # Elevation angle
-#     cos_zang = np.clip(vertical / (r * vertical_norm), -1.0, 1.0)
-#     Zang = np.arccos(cos_zang)
-#     elevation = np.pi / 2.0 - Zang
-    
-#     # Azimuth
-#     azimuth = np.arctan2(east, north)
-    
-#     # Angle w
-#     sin_w = (re / (re + shell_h)) * np.cos(elevation)
-#     sin_w = np.clip(sin_w, -1.0, 1.0)
-#     w = (np.pi / 2.0) - elevation - np.arcsin(sin_w)
-    
-#     # IPP coordinates
-#     Latpp = np.arcsin(np.sin(sta_lat) * np.cos(w) + np.cos(sta_lat) * np.sin(w) * np.cos(azimuth))
-#     Lonpp = sta_lon + np.arcsin((np.sin(w) * np.sin(azimuth)) / np.cos(Latpp))
-    
-#     # Convert to degrees
-#     return (np.degrees(Latpp), np.degrees(Lonpp), np.degrees(elevation))
-
-# def ipp_calculator(prn_xyz, sta_xyz, shell_h):
-    
-#     coord_ellip=geocentric2geodetic(sta_xyz, 'km')
-#     sta_xyz = pd.DataFrame(sta_xyz.reshape(1, -1), columns=(['x_km','y_km','z_km']))
-
-#     dx=prn_xyz['x_km']-sta_xyz['x_km'].item()
-#     dy=prn_xyz['y_km']-sta_xyz['y_km'].item()
-#     dz=prn_xyz['z_km']-sta_xyz['z_km'].item()
-#     r=np.sqrt(dx**2 + dy**2 +dz**2)
-    
-    
-#     sta_lat=np.radians(coord_ellip[0]) # coord_ellip[0] deve estar em graus
-#     sta_lon=np.radians(coord_ellip[1]) # coord_ellip[1] deve estar em graus
-    
-#     north = -np.cos(sta_lon)*np.sin(sta_lat)*dx-np.sin(sta_lon)*np.sin(sta_lat)*dy+np.cos(sta_lat)*dz
-#     east = -np.sin(sta_lon)*dx+np.cos(sta_lon)*dy
-#     vertical = np.cos(sta_lon)*np.cos(sta_lat)*dx+np.sin(sta_lon)*np.cos(sta_lat)*dy+np.sin(sta_lat)*dz
-    
-#     vertical_norm = np.sqrt((np.cos(sta_lon)*np.cos(sta_lat))**2 + (np.sin(sta_lon)*np.cos(sta_lat))**2 + (np.sin(sta_lat))**2)
-    
-#     Zang= np.arccos(vertical/(r*vertical_norm))#   ;ângulo entre dois vetores
-#     elevation2 =np.pi/2. - Zang
-    
-#     azimuth = np.arctan2(east,north) #              ; 	% radians
-#     # idx = azimuth<0
-#     # azimuth[idx] = azimuth[idx] + 2. * np.pi
-    
-    
-#     re=6371.  # ; raio da terra médio em metros.
-#     hm=shell_h  # ;altura média do pico do perfil vertical da densidade de eletróns na ionosfera em metros.
-    
-#     w=(np.pi/2.) - (elevation2) - np.arcsin((re/(re+hm))*np.cos(elevation2))
-#     # qsi = np.cos(np.arcsin((re/(re+hm))*np.cos(elevation2)))
-    
-#     Rhopp = re / np.cos(w)
-#     Latpp = np.arcsin(np.sin(sta_lat)*np.cos(w) + np.cos(sta_lat)*np.sin(w)*np.cos(azimuth))# ; latittude do pirce point (radianos)
-#     Lonpp = sta_lon + np.arcsin((np.sin(w)*np.sin(azimuth))/(np.cos(Latpp)))       # ; longitude do pierce point (radianos)
-    
-#     return Rhopp, np.degrees(Latpp), np.degrees(Lonpp), np.degrees(elevation2)
-
-
-# def to_sec(df):
 def times(df):
     #reference time
     c_time_ref = datetime(1970,1,1)
@@ -417,51 +263,6 @@ def distance_from_a_point(df, point):
     return df
     
 
-# def coord_spherical(inter_function, t_input):
-    
-#     #Transforming into a matriz
-#     c_cart=zip(inter_function[0](t_input),
-#               inter_function[1](t_input),
-#               inter_function[2](t_input))
-    
-    
-    
-#     #Interpolated cartesian coordinates
-#     xyz=pd.DataFrame(c_cart, columns = ['x_km','y_km','z_km'])
-    
-    
-#     # Antigamente eu fazia esferica, agora eu vou fazer a elliptica
-#     #==========================================================================
-#     #Transforming cartesian coordinates into spherical coordinates
-#     r=np.sqrt( xyz['x_km']**2 + xyz['y_km']**2 + xyz['z_km']**2)
-#     theta = np.degrees(np.arctan2(xyz['z_km'],
-#                       np.sqrt(xyz['x_km']**2 + xyz['y_km']**2))) # elevation
-#     phi = np.degrees(np.arctan2(xyz['y_km'],xyz['x_km']))         # azimute
-    
-#     # Transforming into a matriz
-#     c_spher = zip(r,theta,phi)
-    
-#     #Interpolated spherical coordinates
-#     rtp = pd.DataFrame(c_spher, columns = ['r_km','lat_deg','lon_deg'])
-    
-
-#     return rtp
-
-
-# def coord_elliptical(inter_function, t_input):
-    
-#     #Transforming into a matriz
-#     c_cart=zip(inter_function[0](t_input),
-#               inter_function[1](t_input),
-#               inter_function[2](t_input))
-    
-#     #Interpolated cartesian coordinates
-#     xyz=pd.DataFrame(c_cart, columns = ['x_km','y_km','z_km'])
-    
-#     plh = xyz.apply(lambda row: geocentric2geodetic(row.values, unit='km'), axis=1, result_type='expand')
-#     plh.columns = ['lat_deg','lon_deg','r_km']
-    
-#     return plh
 
 def coord_cartesian(inter_function, t_input):
     
@@ -477,78 +278,77 @@ def coord_cartesian(inter_function, t_input):
 
 
 
-
-def ipp_coordinates(Df_RINEX, df_orbit, sta_xyz, shell_h):
-# =============================================================================
-#  Calculo dos valores de TEC e vTEC
-# =============================================================================
-    # del_prn=[]
-    iall = Df_RINEX.index
-    # re=6371.   #raio da terra médio .
+# def ipp_coordinates(Df_RINEX, df_orbit, sta_xyz, shell_h):
+# # =============================================================================
+# #  Calculo dos valores de TEC e vTEC
+# # =============================================================================
+#     # del_prn=[]
+#     iall = Df_RINEX.index
+#     # re=6371.   #raio da terra médio .
     
-    prns=Df_RINEX['prn'].unique()
-    prns.sort()
+#     prns=Df_RINEX['prn'].unique()
+#     prns.sort()
     
-    for prn in prns:
-        #Tem que ser por prn, cada prn tem uma trajetoria diferente
-        idx_prn = iall[Df_RINEX['prn']==prn].copy()
-        Inter_prn, keep_this_prn=data_interpol(df_orbit, prn)
+#     for prn in prns:
+#         #Tem que ser por prn, cada prn tem uma trajetoria diferente
+#         idx_prn = iall[Df_RINEX['prn']==prn].copy()
+#         Inter_prn, keep_this_prn=data_interpol(df_orbit, prn)
         
-        try:
-            #Achando as Coortenadas do satelite
-            # T_input=Df_RINEX.loc[idx_prn,'horario_s'].copy()
-            T_input=Df_RINEX.loc[idx_prn,'time_j'].copy()
-            # prn_coord=sp3.coord_spherical(Inter_prn,T_input)
-            prn_xyz=coord_cartesian(Inter_prn,T_input)
-            # prn_coord=coord_elliptical(Inter_prn,T_input)
+#         try:
+#             #Achando as Coortenadas do satelite
+#             # T_input=Df_RINEX.loc[idx_prn,'horario_s'].copy()
+#             T_input=Df_RINEX.loc[idx_prn,'time_j'].copy()
+#             # prn_coord=sp3.coord_spherical(Inter_prn,T_input)
+#             prn_xyz=coord_cartesian(Inter_prn,T_input)
+#             # prn_coord=coord_elliptical(Inter_prn,T_input)
             
-            #Calculando o Ionospheric Piercing Point
-            lat, lon, ele = ipp_calculator(prn_xyz, sta_xyz, shell_h)
+#             #Calculando o Ionospheric Piercing Point
+#             lat, lon, ele = ipp_calculator(prn_xyz, sta_xyz, shell_h)
             
 
-            # Essa parte poderia estar dentro do ipp        
-            # =================================================================
-            Df_Geo=pd.DataFrame()
-#        
-            Df_Geo[''] = idx_prn
-            Df_Geo['lat'], Df_Geo['lon'], Df_Geo['ele'] = lat, lon, ele
-            Df_Geo.set_index('',inplace=True)
+#             # Essa parte poderia estar dentro do ipp        
+#             # =================================================================
+#             Df_Geo=pd.DataFrame()
+# #        
+#             Df_Geo[''] = idx_prn
+#             Df_Geo['lat'], Df_Geo['lon'], Df_Geo['ele'] = lat, lon, ele
+#             Df_Geo.set_index('',inplace=True)
             
-            # #If its required to calculate the VTEC, uncomment this line
-            # Df_Geo['S_factor']=np.cos(np.arcsin(np.cos(np.radians(elev)) * re/(re+shell_h) ))
-            # Df_RINEX.loc[idx_prn,'S_factor']=Df_Geo.loc[idx_prn,'S_factor']
+#             # #If its required to calculate the VTEC, uncomment this line
+#             # Df_Geo['S_factor']=np.cos(np.arcsin(np.cos(np.radians(elev)) * re/(re+shell_h) ))
+#             # Df_RINEX.loc[idx_prn,'S_factor']=Df_Geo.loc[idx_prn,'S_factor']
 
             
-            # Df_RINEX.loc[idx_prn,'rho_km']=Df_Geo.loc[idx_prn,'rho_km']
-            Df_RINEX.loc[idx_prn,f'lt{int(shell_h)}']=Df_Geo.loc[idx_prn,'lat']
-            Df_RINEX.loc[idx_prn,f'ln{int(shell_h)}']=Df_Geo.loc[idx_prn,'lon']
-            Df_RINEX.loc[idx_prn,f'el{int(shell_h)}']=Df_Geo.loc[idx_prn,'ele']
-            # =================================================================
-        except:
-            # bef = len(Df_RINEX)
-            iall = iall.drop(idx_prn)
-            Df_RINEX = Df_RINEX.drop(idx_prn)
-            # aft = len(Df_RINEX)
+#             # Df_RINEX.loc[idx_prn,'rho_km']=Df_Geo.loc[idx_prn,'rho_km']
+#             Df_RINEX.loc[idx_prn,f'lt{int(shell_h)}']=Df_Geo.loc[idx_prn,'lat']
+#             Df_RINEX.loc[idx_prn,f'ln{int(shell_h)}']=Df_Geo.loc[idx_prn,'lon']
+#             Df_RINEX.loc[idx_prn,f'el{int(shell_h)}']=Df_Geo.loc[idx_prn,'ele']
+#             # =================================================================
+#         except:
+#             # bef = len(Df_RINEX)
+#             iall = iall.drop(idx_prn)
+#             Df_RINEX = Df_RINEX.drop(idx_prn)
+#             # aft = len(Df_RINEX)
             
-            # print(f"The problem with PRN {prn} IPP resulted in the deletion of {bef-aft} entries.")
+#             # print(f"The problem with PRN {prn} IPP resulted in the deletion of {bef-aft} entries.")
 
         
 
     
-        #Se o prn nao tiver dados, deleta ele de uma vez    
+#         #Se o prn nao tiver dados, deleta ele de uma vez    
         
             
-            # del_prn.append(prn)    
+#             # del_prn.append(prn)    
     
-        # #Calculando os valores de vTEC
-        # # S_factor=np.cos(np.arcsin(np.cos(np.radians(elev))*re/(re+hm)))
-        # Df_RINEX.loc[idx_prn,'vTEC']=Df_RINEX.loc[idx_prn,'TEC']*Df_Geo.loc[idx_prn,'S_factor']
-        # # Df_RINEX.loc[idx_prn,'vTEC']=np.multiply(Df_RINEX['TEC'],Df_Geo['S_factor'])
+#         # #Calculando os valores de vTEC
+#         # # S_factor=np.cos(np.arcsin(np.cos(np.radians(elev))*re/(re+hm)))
+#         # Df_RINEX.loc[idx_prn,'vTEC']=Df_RINEX.loc[idx_prn,'TEC']*Df_Geo.loc[idx_prn,'S_factor']
+#         # # Df_RINEX.loc[idx_prn,'vTEC']=np.multiply(Df_RINEX['TEC'],Df_Geo['S_factor'])
         
         
-        # Df_RINEX.loc[idx_prn,'s_factor']=Df_Geo.loc[idx_prn,'S_factor']
+#         # Df_RINEX.loc[idx_prn,'s_factor']=Df_Geo.loc[idx_prn,'S_factor']
     
-    return Df_RINEX
+#     return Df_RINEX
 
 
 def satellite_coordinates(df_prn, df_orb_prn, prn, ref_date):
@@ -577,99 +377,6 @@ def satellite_coordinates(df_prn, df_orb_prn, prn, ref_date):
     return df_prn
 
 
-
-def ipp_coordinates_v2(df_rinex, sta_xyz, sh_km):
-    """
-    Compute Ionospheric Piercing Point (IPP) coordinates and elevation angles 
-    for satellite observations in the RINEX DataFrame.
-
-    Parameters:
-        df_rinex (pd.DataFrame): GNSS observation DataFrame with satellite ECEF coordinates.
-                                 Must include ['x_km', 'y_km', 'z_km'] columns.
-        sta_xyz (array-like): Receiver ECEF position [x, y, z] in km.
-        sh_km (float): Ionospheric shell height in km.
-
-    Returns:
-        pd.DataFrame: Updated DataFrame with new columns ['lt', 'ln', 'el'].
-                      Rows with missing satellite coordinates are removed.
-    """
-    # Drop rows with NaNs in any coordinate
-    coord_cols = ['x_km', 'y_km', 'z_km']
-    df_valid = df_rinex.dropna(subset=coord_cols).copy()
-
-    if df_valid.empty:
-        print("[WARN] No valid satellite coordinates to compute IPP.")
-        return df_rinex.assign(lt=None, ln=None, el=None)  # Fill empty results
-
-    # Calculate IPP
-    try:
-        ipp_result = ipp_calculator_numpy(df_valid[coord_cols], sta_xyz, sh_km)
-        df_valid[['lt', 'ln', 'el']] = np.vstack(ipp_result).T
-
-        # Update original DataFrame (only valid indices)
-        df_valid.drop(columns=['x_km', 'y_km', 'z_km'], inplace=True)
-        # df_rinex.update(df_valid[['lt', 'ln', 'el']])
-        return df_valid
-
-    except Exception as e:
-        print(f"[ERROR] IPP calculation failed: {e}")
-        return df_rinex
-
-
-
-def satellite_xyz_old(Df_RINEX, df_orbit, sta_xyz, shell_h):
-# =============================================================================
-#  Calculo dos valores de TEC e vTEC
-# =============================================================================
-    # del_prn=[]
-    iall = Df_RINEX.index
-    # re=6371.   #raio da terra médio .
-    
-    prns=Df_RINEX['prn'].unique()
-    prns.sort()
-    
-    for prn in prns:
-        #Tem que ser por prn, cada prn tem uma trajetoria diferente
-        idx_prn = iall[Df_RINEX['prn']==prn].copy()
-        Inter_prn, keep_this_prn=data_interpol(df_orbit, prn)
-        if isinstance(Inter_prn, str):
-            print(keep_this_prn)
-            continue
-        
-        try:
-            #Achando as Coortenadas do satelite
-            # T_input=Df_RINEX.loc[idx_prn,'horario_s'].copy()
-            T_input=Df_RINEX.loc[idx_prn,'time_j'].copy()
-            # prn_coord=sp3.coord_spherical(Inter_prn,T_input)
-            prn_xyz=coord_cartesian(Inter_prn,T_input)
-            
-            Df_RINEX.loc[idx_prn, ['x_km', 'y_km', 'z_km']] = prn_xyz
-
-        except:
-            # bef = len(Df_RINEX)
-            iall = iall.drop(idx_prn)
-            Df_RINEX = Df_RINEX.drop(idx_prn)
-            # aft = len(Df_RINEX)
-            
-            # print(f"The problem with PRN {prn} IPP resulted in the deletion of {bef-aft} entries.")
-
-        
-
-    
-        #Se o prn nao tiver dados, deleta ele de uma vez    
-        
-            
-            # del_prn.append(prn)    
-    
-        # #Calculando os valores de vTEC
-        # # S_factor=np.cos(np.arcsin(np.cos(np.radians(elev))*re/(re+hm)))
-        # Df_RINEX.loc[idx_prn,'vTEC']=Df_RINEX.loc[idx_prn,'TEC']*Df_Geo.loc[idx_prn,'S_factor']
-        # # Df_RINEX.loc[idx_prn,'vTEC']=np.multiply(Df_RINEX['TEC'],Df_Geo['S_factor'])
-        
-        
-        # Df_RINEX.loc[idx_prn,'s_factor']=Df_Geo.loc[idx_prn,'S_factor']
-    
-    return Df_RINEX
 
 
 def satellite_xyz(df_rinex, df_orbit):
