@@ -21,7 +21,7 @@ import duckdb
 
 import pandas as pd
 import pyarrow.parquet as pq
-from shared.options import tec_pc_dir
+from shared.config import tec_pc_dir
 
 log = logging.getLogger("process.prn_store")
 
@@ -130,41 +130,42 @@ def save_prn_incremental(
     df_merged[cols].to_parquet(fpath, index=False)
     return fpath
 
-
 def load_tec_with_neighbors(
     year: int,
     doy: int,
     station: str,
     constellation: str = "G",
+    with_neighbors: bool = True,
 ) -> pd.DataFrame:
+    """Read the central day's TEC, optionally padded with DOY±1 neighbors.
+
+    Returns rows for the central day only — neighbors (when loaded) just
+    feed downstream interpolators slack at day boundaries.
     """
-    Lê os arquivos do dia central + vizinhos (DOY±1) e devolve
-    apenas as observações do dia central como DataFrame.
-    """
-    # 1. Dias vizinhos
     base = dt.date(year, 1, 1) + dt.timedelta(days=doy - 1)
-    neighbors = [
+
+    # -1, 0, +1 with neighbors; only 0 without.
+    offsets = (-1, 0, 1) if with_neighbors else (0,)
+    pairs = [
         (
             (base + dt.timedelta(days=k)).year,
             (base + dt.timedelta(days=k)).timetuple().tm_yday,
         )
-        for k in (-1, 0, 1)
+        for k in offsets
     ]
 
-    # 2. Arquivos dos 3 dias
     files = []
-    for y, d in neighbors:
-        path = tec_pc_dir(y,d) / constellation
+    for y, d in pairs:
+        path = tec_pc_dir(y, d) / constellation
         files.extend(path.glob(f"{y}{d:03d}{constellation}_{station}.parquet"))
 
     if not files:
         return pd.DataFrame(columns=["prn", "horario", "tec_pcarrier"])
 
-    # 3. Limites do dia central
+    # Always filter to the central day; neighbors are read just for padding.
     day_start = dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1)
-    day_end   = day_start + dt.timedelta(days=1)
+    day_end = day_start + dt.timedelta(days=1)
 
-    # 4. Lê e filtra só o dia central
     with duckdb.connect(":memory:") as con:
         df = con.execute(f"""
             SELECT prn, horario, tec_pcarrier
@@ -173,5 +174,4 @@ def load_tec_with_neighbors(
               AND horario <  TIMESTAMP '{day_end.isoformat()}'
             ORDER BY prn, horario
         """).df()
-
     return df

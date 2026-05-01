@@ -39,6 +39,8 @@ from shared.config import (
 from shared.earthdata_download import download_precise_orbits
 from shared.pipeline_utils import build_arg_parser, resolve_pairs
 
+from shared.prn_store import load_tec_with_neighbors
+
 log = logging.getLogger("process.download_sp3")
 
 # `date` (not `datetime`) so subtraction works with either type.
@@ -56,6 +58,35 @@ def prn_from_file_path(path: Path) -> str:
     # Replace with your shared helper if you already have one.
     return path.stem.split("_")[0]
 
+# ---------------------------------------------------------------------------
+# Pickle builder
+# ---------------------------------------------------------------------------
+ 
+def build_complete_pickle(year: int, doy: int, sp3_file: Path,
+                          lg: logging.LoggerAdapter) -> bool:
+    """Concat days (-1..+2) of SP3 into `sp3_file`. Returns True on success."""
+    dt_in = doy_to_date(year, doy)
+    # concat_all wants the base folder, not the day folder.
+    eph_folder = sp3_file.parent.parent.parent
+    lg.info("GNSS week %d — building %s",
+            calculate_gnss_week(dt_in), sp3_file.name)
+ 
+    try:
+        df_orbit = sp3.concat_all(str(eph_folder), dt_in)
+    except Exception:
+        lg.exception("SP3 consolidation failed")
+        return False
+ 
+    # Don't write an empty pickle — would poison future skip checks.
+    if df_orbit.empty:
+        lg.warning("Empty orbit DataFrame — pickle not written")
+        return False
+ 
+    df_orbit.to_pickle(sp3_file)
+    lg.info("Pickle written: %s (%d rows)", sp3_file, len(df_orbit))
+    return True
+
+
 
 # ---------------------------------------------------------------------------
 # Core
@@ -66,46 +97,23 @@ def run(year: int, doy: int) -> None:
     eph_dir = ephemeris_dir(year, doy)
     eph_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Phase 1: download (skip if already on disk) ---
-    # existing = list(eph_dir.glob("*.SP3")) + list(eph_dir.glob("*.sp3"))
-    sp3_ncomplete_name = f"{year}{doy:03d}_complete.pkl"
-    sp3_file = eph_dir / sp3_ncomplete_name
-    
-    if sp3_file:
-        lg.info("%s already on ready", sp3_ncomplete_name)
+    sp3_file = eph_dir / f"{year}{doy:03d}_complete.pkl"
+
+    # --- Ensure pickle exists ---
+    if sp3_file.exists():
+        lg.info("SKIP build — %s already exists", sp3_file.name)
     else:
-        lg.info("=== 3.c SP3 download ===")
+        lg.info("=== 3.c SP3 download (FIN) ===")
         try:
             download_precise_orbits(doy_to_date(year, doy))
         except Exception:
-            # Bail out: no point consolidating a failed download.
             lg.exception("SP3 download failed")
             return
+        if not build_complete_pickle(year, doy, sp3_file, lg):
+            return  # nothing to project against
 
-    # # --- Phase 2: consolidate -1..+2 days into one pickle ---
-    # sp3_file = eph_dir / f"{year}{doy:03d}_complete.pkl"
-    # if not sp3_file.exists():
-        dt_in = doy_to_date(year, doy)
-        # concat_all wants the base folder, not the day folder.
-        eph_folder = eph_dir.parent.parent
-        lg.info("GNSS week %d — building %s",
-                calculate_gnss_week(dt_in), sp3_file.name)
-        try:
-            df_orbit = sp3.concat_all(str(eph_folder), dt_in)
-            # Don't write an empty pickle — would poison future skip checks.
-            if df_orbit.empty:
-                lg.warning("Empty orbit DataFrame — pickle not written")
-                return
-            df_orbit.to_pickle(sp3_file)
-            lg.info("Pickle written: %s (%d rows)", sp3_file, len(df_orbit))
-        except Exception:
-            lg.exception("SP3 consolidation failed")
-            return
-    # else:
-    #     lg.info("SKIP consolidation (%s exists)", sp3_file.name)
-
-    # --- Phase 3: project satellite positions onto per-PRN parquets ---
-    # satellite_positions(year, doy)
+    # --- Project positions onto per-PRN parquets ---
+    satellite_positions(year, doy)
 
 
 def satellite_positions(year: int, doy: int) -> None:
@@ -117,7 +125,40 @@ def satellite_positions(year: int, doy: int) -> None:
         lg.warning("SKIP positions (orbit pickle missing)")
         return
 
-    parquet_dir = tec_pc_dir(year, doy)
+    parquet_ref = tec_pc_dir(year, doy)
+    parquet_dir = parquet_ref / "E"
+    
+    
+    """
+    ##############################################################
+    #############################################################
+    ##############################################################
+    #############################################################
+    
+    
+    Aqui eu preciso fazer a rotina ler e inserir as posições dos satelites 
+    Em cada uma das estações, talvez seja interessante salvar esses arquivos separados
+    um para cada satelite, minha ultima ideia,
+    
+    salvar um {year}{doy}_E0X.parquet.
+    
+    ^ ^ ^
+    Pensa nisso
+    
+    
+    #########################################################
+    #########################################################
+    ########################################################
+    """
+    
+    
+    
+    
+    
+    
+    
+    
+    #load_tec_with_neighbors(year, doy, with_neighbors=False)
     files = sorted(parquet_dir.glob("*.parquet"))
     if not files:
         lg.warning("SKIP positions (no parquets in %s)", parquet_dir)
@@ -171,7 +212,7 @@ if __name__ == "__main__":
 
     pairs = resolve_pairs(args, referencefolder="tecRAWReferenceFolder")
     log.info("Found %d year/doy folders to process", len(pairs))
-    # pairs = [(2025,317)]
+    pairs = [(2025,317)]
     for year, doy in pairs:
         log.info("=== %d / doy %03d ===", year, doy)
         run(year, doy)
