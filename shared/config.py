@@ -14,8 +14,8 @@ from datetime import datetime
 from pathlib import Path
 
 
-place = 'home'
-# place = 'inpe'
+# place = 'home'
+place = 'inpe'
 # place = 'ssd-inpe'
 # place = 'ssd-home'
 
@@ -53,6 +53,9 @@ def rinex_dir(year: int, doy: int) -> Path:
 
 def ephemeris_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "gnss" / "ephemeris" / f"{year}" / f"{doy:03d}"
+
+def ephemeris_byprn_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "gnss" / "ephemeris_byprn" / f"{year}" / f"{doy:03d}"
 
 
 def station_positions_dir() -> Path:
