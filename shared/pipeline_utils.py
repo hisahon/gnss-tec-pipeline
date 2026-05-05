@@ -53,8 +53,6 @@ def _folder_root(referencefolder: str) -> Path:
         return tec_pc_dir(2000, 1).parent.parent
     
 
-
-
 def discover_year_doys(
     year_filter: int | None = None,
     doy_filter: int | None = None,
