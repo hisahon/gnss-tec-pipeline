@@ -6,6 +6,7 @@ Autor original: Honda, R. H. (Set/2022).
 import gzip
 import math
 import os
+from pathlib import Path
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -422,101 +423,51 @@ def satellite_xyz(df_rinex, df_orbit):
     return df_rinex, dropped
 
 
-def concat_daybyday(folder_path):
-    
-    
-    if not os.path.exists(folder_path):
-        sp3_day = pd.DataFrame()
-    else:
-        files = os.listdir(folder_path)
-        files = [file for file in files if file.endswith('.gz')]
-        for i, file_name in enumerate(files):
-            
-        # Construct the full file path
 
-            file_path = os.path.join(folder_path, file_name)
-            
-            if i==0:
-                sp3_day, prns = read_sp3(file_path)
-            
-            else:
-                sp3_new, _ = read_sp3(file_path)
-        
-        
-                for prn in prns:
-                    sp3_new = sp3_new[sp3_new['prn'] != prn]
-                    
-                    
-                sp3_day = pd.concat([sp3_day, sp3_new], ignore_index=True)
-                
-                prns=sp3_day['prn'].unique()
-            
-            print(f'Processed: {file_name}')
-    
-    return sp3_day
+def concat_daybyday(folder_path, verbose=False):
+    folder = Path(folder_path)
+    if not folder.exists():
+        return pd.DataFrame()
 
+    files = sorted(folder.glob('*.gz'))
+    if not files:
+        return pd.DataFrame()
+
+    dfs = []
+    seen_prns = set()
+
+    for file_path in files:
+        sp3_new, _ = read_sp3(str(file_path))
+        sp3_new = sp3_new[~sp3_new['prn'].isin(seen_prns)]
+        if not sp3_new.empty:
+            dfs.append(sp3_new)
+            seen_prns.update(sp3_new['prn'].unique())
+        if verbose:
+            print(f'Processed: {file_path.name}')
+
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 
 def concat_all(folder_base, datein):
-    
-    # one_day = timedelta(days=1)
-    
-    # dateout=datein - timedelta(days=1)
-    # year, doy = dateout.year, dateout.strftime("%j")
-    # folder_day = folder_base + f'{year}/{doy}/'
-    # df_orbitday0 = concat_daybyday(folder_day)
-    
-    # dateout=datein
-    # year, doy = dateout.year, dateout.strftime("%j")
-    # folder_day = folder_base + f'{year}/{doy}/'
-    # df_orbitday1 = concat_daybyday(folder_day)
-    
-    # sp3_all = pd.concat([df_orbitday0, df_orbitday1], ignore_index=True)
-    
-    # dateout=datein + timedelta(days=1)
-    # year, doy = dateout.year, dateout.strftime("%j")
-    # folder_day = folder_base + f'{year}/{doy}/'
-    # df_orbitday2 = concat_daybyday(folder_day)
-    
-    # sp3_all = pd.concat([sp3_all, df_orbitday2], ignore_index=True)
-    
+    base = Path(folder_base)
     dfs = []
+    for i in range(-1, 2):
+        d = datein + timedelta(days=i)
+        folder_day = base / str(d.year) / d.strftime("%j")
+        df = concat_daybyday(folder_day)
+        if not df.empty:
+            dfs.append(df)
 
-    # Loop over the range of days (from -1 day to +1 day)
-    for i in range(-1, 3):
-        dateout = datein + timedelta(days=i)
-        year, doy = dateout.year, dateout.strftime("%j")
-        folder_day = f'{folder_base}/{year}/{doy}/'
-        dfs.append(concat_daybyday(folder_day))  # Append the dataframe to the list
-    
-    # Concatenate all the dataframes in the list
+    if not dfs:
+        return pd.DataFrame()
+
     sp3_all = pd.concat(dfs, ignore_index=True)
-    
-    # Sort DataFrame by 'horario_s' column in ascending order
-    
     sp3_all = times(sp3_all)
-    
-    sp3_all.sort_values(by='time_j', inplace=True)
-    
-    # Reset the index
-    sp3_all.reset_index(drop=True, inplace=True)
-    
-    # dateout=datein
-    # year, doy = dateout.year, dateout.strftime("%j")
-    # folder_day = f'{folder_base}/{year}/{doy}'
-    
-    # file_output = f'{folder_day}/{year}{doy}_complete.pkl'
-    
-    # print('----------------------------------------')
-    # print(f'Saving file: {year}{doy}_complete.pkl')
-    # print(f'Diretory: {folder_day}')
-    
-    # if not os.path.exists(file_output):
-    #     # with open(file_output, 'wb') as file:
-    #     #     pickle.dump(sp3_all, file)
-    #     sp3_all.to_parquet(file_output)
-    
-    return sp3_all
+    return (sp3_all
+            .sort_values('time_j')
+            .reset_index(drop=True))
+
+
 
 def concat_all_v2(paths, datein):
    

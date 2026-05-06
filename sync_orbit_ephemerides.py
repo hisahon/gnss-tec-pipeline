@@ -26,22 +26,22 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from pathlib import Path
-import os
+# import os
 
 import pandas as pd
 
 from shared import sp3
 from shared.config import (
     ephemeris_dir,
-    ephemeris_byprn_dir,
+    ephemeris_parquet_dir,
     doy_to_date,
     setup_logging,
-    tec_pc_dir,  # adjust the import name if your codebase uses a different one
+    # tec_pc_dir,  # adjust the import name if your codebase uses a different one
 )
 from shared.earthdata_download import download_precise_orbits
 from shared.pipeline_utils import build_arg_parser, resolve_pairs
 
-from shared.prn_store import load_tec_with_neighbors
+# from shared.prn_store import load_tec_with_neighbors
 
 log = logging.getLogger("process.download_sp3")
 
@@ -64,17 +64,19 @@ def prn_from_file_path(path: Path) -> str:
 # Pickle builder
 # ---------------------------------------------------------------------------
  
-def build_complete_pickle(year: int, doy: int, sp3_file: Path,
-                          lg: logging.LoggerAdapter) -> bool:
+def build_complete_binary(year: int, doy: int, sp3_file: Path, 
+                          lg: logging.LoggerAdapter,
+                          parquet: bool) -> bool:
     """Concat days (-1..+2) of SP3 into `sp3_file`. Returns True on success."""
     dt_in = doy_to_date(year, doy)
     # concat_all wants the base folder, not the day folder.
-    eph_folder = sp3_file.parent.parent.parent
+    # sp3_files_folder = sp3_file.parent.parent.parent
+       
     lg.info("GNSS week %d — building %s",
             calculate_gnss_week(dt_in), sp3_file.name)
  
     try:
-        df_orbit = sp3.concat_all(str(eph_folder), dt_in)
+        df_orbit = sp3.concat_all(dt_in)
     except Exception:
         lg.exception("SP3 consolidation failed")
         return False
@@ -83,8 +85,15 @@ def build_complete_pickle(year: int, doy: int, sp3_file: Path,
     if df_orbit.empty:
         lg.warning("Empty orbit DataFrame — pickle not written")
         return False
- 
-    df_orbit.to_pickle(sp3_file)
+    
+    if parquet:
+        output_folder = ephemeris_parquet_dir(year, doy)
+        output_file = output_folder / f"ORBIT_{year}{doy:03d}.parquet"
+        df_orbit.to_parquet(output_file)
+    else:
+        output_folder = ephemeris_dir(year, doy)
+        output_file = output_folder / f"{year}{doy:03d}.pkl"
+        df_orbit.to_pickle(sp3_file)
     lg.info("Pickle written: %s (%d rows)", sp3_file, len(df_orbit))
     return True
 
@@ -94,45 +103,21 @@ def build_complete_pickle(year: int, doy: int, sp3_file: Path,
 # Core
 # ---------------------------------------------------------------------------
 
-def run(year: int, doy: int) -> None:
-    lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
-    eph_dir = ephemeris_dir(year, doy)
-    eph_dir.mkdir(parents=True, exist_ok=True)
-
-    sp3_file = eph_dir / f"{year}{doy:03d}_complete.pkl"
-
-    # --- Ensure pickle exists ---
-    if sp3_file.exists():
-        lg.info("SKIP build — %s already exists", sp3_file.name)
-    else:
-        lg.info("=== 3.c SP3 download (FIN) ===")
-        try:
-            download_precise_orbits(doy_to_date(year, doy))
-        except Exception:
-            lg.exception("SP3 download failed")
-            return
-        if not build_complete_pickle(year, doy, sp3_file, lg):
-            return  # nothing to project against
-
-    # --- Project positions onto per-PRN parquets ---
-    satellite_positions(year, doy)
-
-
-
 def satellite_positions(year: int, doy: int) -> None:
     """Split the day's orbit pickle into one parquet per PRN."""
     lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
 
-    sp3_file = ephemeris_dir(year, doy) / f"{year}{doy:03d}_complete.pkl"
+    # sp3_file = ephemeris_dir(year, doy) / f"{year}{doy:03d}_complete.pkl"
+    sp3_file = ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
+
     if not sp3_file.exists():
         lg.warning("SKIP positions (orbit pickle missing)")
         return
 
-    df_orbit = pd.read_pickle(sp3_file)
-    dt_in = pd.Timestamp(doy_to_date(year, doy))
-    ref_date = dt_in - pd.Timedelta(days=1)  # keeps `sec` non-negative
+    # df_orbit = pd.read_pickle(sp3_file)
+    df_orbit = pd.read_parquet(sp3_file)
 
-    out_dir = ephemeris_byprn_dir(year, doy)
+    out_dir = ephemeris_parquet_dir(year, doy)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     lg.info("Splitting orbit pickle into per-PRN parquets (%d PRNs, %d rows)",
@@ -159,6 +144,33 @@ def satellite_positions(year: int, doy: int) -> None:
 
     lg.info("Per-PRN orbits in %s: %d written, %d skipped, %d failed",
             out_dir, written, skipped, failed)
+
+def run(year: int, doy: int) -> None:
+    lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
+    ephemeris_folder = ephemeris_parquet_dir(year, doy)
+    ephemeris_folder.mkdir(parents=True, exist_ok=True)
+
+    sp3_file = ephemeris_folder / f"ORBIT_{year}{doy:03d}.parquet"
+
+    # --- Ensure pickle exists ---
+    if sp3_file.exists():
+        lg.info("SKIP build — %s already exists", sp3_file.name)
+    else:
+        lg.info("=== 3.c SP3 download (FIN) ===")
+        try:
+            download_precise_orbits(doy_to_date(year, doy))
+        except Exception:
+            lg.exception("SP3 download failed")
+            return
+        if not build_complete_binary(year, doy, sp3_file, lg, parquet = True):
+            return  # nothing to project against
+
+    # --- Project positions onto per-PRN parquets ---
+    satellite_positions(year, doy)
+
+
+
+
 
 
 

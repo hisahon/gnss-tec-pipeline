@@ -54,8 +54,8 @@ def rinex_dir(year: int, doy: int) -> Path:
 def ephemeris_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "gnss" / "ephemeris" / f"{year}" / f"{doy:03d}"
 
-def ephemeris_byprn_dir(year: int, doy: int) -> Path:
-    return DB_ROOT / "gnss" / "ephemeris_byprn" / f"{year}" / f"{doy:03d}"
+def ephemeris_parquet_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "gnss" / "ephemeris_parquet" / f"{year}" / f"{doy:03d}"
 
 
 def station_positions_dir() -> Path:

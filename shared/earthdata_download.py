@@ -42,7 +42,8 @@ def download_precise_orbits(target_date: datetime):
     ]
     
     epoch_gps = datetime(1980, 1, 6)
-    agencies_base = ["COD0MGX", "WUM0MGX", "SHA0MGX", "IAC0MGX"]
+    # agencies_base = ["COD0MGX", "WUM0MGX", "SHA0MGX", "IAC0MGX"]
+    agencies_base = ["COD0MGX", "SHA0MGX", "IAC0MGX"]
     orbit_priorities = ["FIN"] 
     
     for current_date in dates_to_process:
