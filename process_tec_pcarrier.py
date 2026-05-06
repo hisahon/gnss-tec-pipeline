@@ -272,6 +272,130 @@ def _discard_stations_without_positions(meta_row):
     
     
 
+# def process_tec(
+#     tec_folder: Path,
+#     tec_pc_folder: Path,
+#     tec_error_folder: Path,
+#     station_positions_file: Path,
+#     year: int,
+#     doy: int,
+# ) -> None:
+#     # ---- Setup de pastas -------------------------------------------------
+#     for folder in (tec_pc_folder, tec_error_folder, station_positions_file.parent):
+#         folder.mkdir(parents=True, exist_ok=True)
+
+#     # ---- Inventário de entrada e estado anterior ------------------------
+#     files = list_files(tec_folder, ".pkl")
+#     total = len(files)
+#     stations_meta: list[list] = []
+
+#     processed_stations = _get_processed_stations(tec_pc_folder)
+#     if processed_stations:
+#         log.info(
+#             f"%d estações já têm arquivos no DOY ({doy}) — serão puladas",
+#             len(processed_stations),
+#         )
+
+#     # ---- Loop principal: 1 estação = 1 leitura de pickle + N escritas ---
+#     skipped = 0
+#     written_files = 0  # nº de parquets gravados nesta execução
+#     written_stations = 0
+
+#     for i, pkl_path in enumerate(files, start=1):
+#         # Skip barato pelo nome do arquivo, antes de qualquer IO pesado
+#         station_from_name = _station_from_filename(pkl_path)
+#         if station_from_name in processed_stations:
+#             skipped += 1
+#             log.debug(
+#                 "[%d/%d] SKIP %s (já processada)",
+#                 i, total, pkl_path.name,
+#             )
+#             continue
+
+#         try:
+#             with open(pkl_path, "rb") as f:
+#                 dic = pickle.load(f)
+
+#             head = dic.pop("header", {})
+#             station_name, meta_row = _extract_station_meta(head)
+            
+#             #if a stations don't have coordinates we will discart it
+#             if _discard_stations_without_positions(meta_row):
+#                 skipped += 1
+#                 continue
+                                   
+#             stations_meta.append(meta_row)
+
+#             # Sanidade: filename vs header (canônico = header)
+#             if station_name and station_name[:4].lower() != station_from_name:
+#                 log.warning(
+#                     "Mismatch filename/header em %s: '%s' vs '%s'",
+#                     pkl_path.name, station_from_name, station_name,
+#                 )
+
+#             if not dic:
+#                 log.info("[%d/%d] vazio %s", i, total, pkl_path.name)
+#                 continue
+
+#             _compute_tec_pcarrier(dic)
+#             by_const = _group_by_constellation(dic)
+#             if not by_const:
+#                 log.info("[%d/%d] sem dado útil %s", i, total, pkl_path.name)
+#                 continue
+
+#             # Nome canônico de saída usa o station_name do header
+#             station_key = (station_name or station_from_name).lower()
+#             # n = _write_station_parquets(by_const, tec_pc_folder, station_key)
+            
+            
+#             out_path = tec_pc_folder / f"{station_name}_{year}{doy:03d}.parquet"
+#             if out_path.exists():
+#                 skipped += 1
+#                 continue
+            
+#             n = _write_station_parquet_merged(by_const, tec_pc_folder, station_key, year, doy)
+#             written_files += n
+#             if n > 0:
+#                 written_stations += 1
+#                 log.info(
+#                     "[%d/%d] %d/%03d TEC OK  %s → %d parquet(s)",
+#                     i, total, year, doy, pkl_path.name, n,
+#                 )
+
+#         except Exception:
+#             shutil.move(str(pkl_path), tec_error_folder / pkl_path.name)
+#             log.exception(
+#                 "[%d/%d] TEC FAIL %s (movido para tec_error)",
+#                 i, total, pkl_path.name,
+#             )
+
+#     if skipped:
+#         log.info(
+#             "  → %d de %d estações já estavam processadas (puladas)",
+#             skipped, total,
+#         )
+
+#     if written_stations:
+#         log.info(
+#             "  → %d estações gravadas (%d parquets no total)",
+#             written_stations, written_files,
+#         )
+#     else:
+#         log.info("Nada novo para gravar (todas as estações já processadas).")
+
+#     # ---- SP file (metadados das estações) -------------------------------
+#     if stations_meta:
+#         new_sp_df = pd.DataFrame(
+#             stations_meta,
+#             columns=["name", "x_km", "y_km", "z_km", "ln_deg", "lt_deg", "h_km"],
+#         )
+#         df_sp = _consolidate_sp(new_sp_df, station_positions_file)
+#         df_sp.to_parquet(station_positions_file, index=False)
+#         log.info(
+#             "Metadados gravados em %s (%d estações)",
+#             station_positions_file, len(df_sp),
+#         )
+
 def process_tec(
     tec_folder: Path,
     tec_pc_folder: Path,
@@ -292,60 +416,76 @@ def process_tec(
     processed_stations = _get_processed_stations(tec_pc_folder)
     if processed_stations:
         log.info(
-            f"%d estações já têm arquivos no DOY ({doy}) — serão puladas",
-            len(processed_stations),
+            "%d estações já têm arquivos no DOY (%d) — serão puladas",
+            len(processed_stations), doy,
         )
 
     # ---- Loop principal: 1 estação = 1 leitura de pickle + N escritas ---
-    skipped = 0
-    written_files = 0  # nº de parquets gravados nesta execução
+    skipped_already = 0   # já processada (parquet existe)
+    skipped_no_pos  = 0   # sem coordenadas no header
+    skipped_empty   = 0   # pickle vazio ou sem dado útil
+    written_files = 0
     written_stations = 0
 
     for i, pkl_path in enumerate(files, start=1):
-        # Skip barato pelo nome do arquivo, antes de qualquer IO pesado
+        # 1) Skip barato pelo nome do arquivo, antes de qualquer IO pesado
         station_from_name = _station_from_filename(pkl_path)
         if station_from_name in processed_stations:
-            skipped += 1
-            log.debug(
-                "[%d/%d] SKIP %s (já processada)",
-                i, total, pkl_path.name,
-            )
+            skipped_already += 1
+            log.debug("[%d/%d] SKIP %s (já processada)", i, total, pkl_path.name)
             continue
 
         try:
+            
+            # 0) Skip canônico pelo path real de saída (case-correct, antes do trabalho pesado)
+            out_path = tec_pc_folder / f"{pkl_path.stem[0:4]}_{year}{doy:03d}.parquet"
+            if out_path.exists():
+                skipped_already += 1
+                log.debug("[%d/%d] SKIP %s (parquet já existe)", i, total, pkl_path.name)
+                continue
+            
             with open(pkl_path, "rb") as f:
                 dic = pickle.load(f)
 
             head = dic.pop("header", {})
             station_name, meta_row = _extract_station_meta(head)
-            
-            #if a stations don't have coordinates we will discart it
-            if _discard_stations_without_positions(meta_row):
-                continue
-                                   
-            stations_meta.append(meta_row)
 
-            # Sanidade: filename vs header (canônico = header)
+            # Nome canônico (mesmo usado para gravar o parquet)
+            station_key = (station_name or station_from_name).lower()
+
+            # Sanidade: filename vs header
             if station_name and station_name[:4].lower() != station_from_name:
                 log.warning(
                     "Mismatch filename/header em %s: '%s' vs '%s'",
                     pkl_path.name, station_from_name, station_name,
                 )
 
+
+
+            # 3) Skip por falta de coordenadas
+            if _discard_stations_without_positions(meta_row):
+                skipped_no_pos += 1
+                continue
+
+            stations_meta.append(meta_row)
+
+            # 4) Skip por pickle vazio
             if not dic:
+                skipped_empty += 1
                 log.info("[%d/%d] vazio %s", i, total, pkl_path.name)
                 continue
 
+            # Trabalho pesado só agora
             _compute_tec_pcarrier(dic)
             by_const = _group_by_constellation(dic)
             if not by_const:
+                skipped_empty += 1
                 log.info("[%d/%d] sem dado útil %s", i, total, pkl_path.name)
                 continue
 
-            # Nome canônico de saída usa o station_name do header
-            station_key = (station_name or station_from_name).lower()
-            # n = _write_station_parquets(by_const, tec_pc_folder, station_key)
-            n = _write_station_parquet_merged(by_const, tec_pc_folder, station_key, year, doy)
+            n = _write_station_parquet_merged(
+                by_const, tec_pc_folder, station_key, year, doy,
+            )
             written_files += n
             if n > 0:
                 written_stations += 1
@@ -361,17 +501,18 @@ def process_tec(
                 i, total, pkl_path.name,
             )
 
-    if skipped:
-        log.info(
-            "  → %d de %d estações já estavam processadas (puladas)",
-            skipped, total,
-        )
+    # ---- Resumo ----------------------------------------------------------
+    if skipped_already:
+        log.info("  → %d de %d estações já estavam processadas (puladas)",
+                 skipped_already, total)
+    if skipped_no_pos:
+        log.info("  → %d estações puladas por falta de coordenadas", skipped_no_pos)
+    if skipped_empty:
+        log.info("  → %d estações puladas por pickle vazio / sem dado útil", skipped_empty)
 
     if written_stations:
-        log.info(
-            "  → %d estações gravadas (%d parquets no total)",
-            written_stations, written_files,
-        )
+        log.info("  → %d estações gravadas (%d parquets no total)",
+                 written_stations, written_files)
     else:
         log.info("Nada novo para gravar (todas as estações já processadas).")
 
@@ -417,7 +558,7 @@ if __name__ == "__main__":
 
     pairs = resolve_pairs(args, 'rinexPKLReferenceFolder')
     log.info("Encontradas %d pastas year/doy para processar", len(pairs))
-    pairs = [(2021,295)]
+    # pairs = [(2021,295)]
     for year, doy in pairs:
         log.info("=== %d / doy %03d ===", year, doy)
         run(year, doy)
