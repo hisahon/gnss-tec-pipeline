@@ -57,17 +57,14 @@ def ephemeris_dir(year: int, doy: int) -> Path:
 def ephemeris_parquet_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "gnss" / "ephemeris_parquet" / f"{year}" / f"{doy:03d}"
 
-
 def station_positions_dir() -> Path:
     return DB_ROOT / "gnss" / "station_positions"
 
 def storms_SouthAmerica() -> Path:
     return DB_ROOT / "cptec" / "merged" / "c13_2018-2025_SouthAmerica.parquet"
 
-
 def tec_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "ionosphere" / "tec" / f"{year}" / f"{doy:03d}"
-
 
 def tec_pc_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "ionosphere" / "tec_pc" / f"{year}" / f"{doy:03d}"

@@ -166,6 +166,61 @@ def _write_station_parquets(
     return written
 
 
+def _write_station_parquet_merged(
+    by_const: dict[str, list[pd.DataFrame]],
+    tec_pc_folder: Path,
+    station: str,
+    year: int,
+    doy: int,
+                            ) -> int:
+    """
+    Write a single parquet per station containing all constellations stacked.
+    """
+    # Stack all dataframes, tagging each with its constellation
+    all_parts = []
+    for const, parts in by_const.items():
+        for df in parts:
+            df = df.copy()
+            # df["constellation"] = const
+            all_parts.append(df)
+
+    # Nothing to save
+    if not all_parts:
+        return 0
+
+    # Concatenate all dataframes into one
+    merged = pd.concat(all_parts, ignore_index=True)
+
+    # Optimize dtypes
+    merged["tec_pcarrier"] = merged["tec_pcarrier"].astype("float32")
+    merged["horario"] = pd.to_datetime(merged["horario"]).astype("datetime64[s]")
+    merged["prn"] = merged["prn"].astype("category")
+    # merged["constellation"] = merged["constellation"].astype("category")
+
+    # Stable sort by constellation, prn, time
+    merged = merged.sort_values(
+        ["prn", "horario"],
+        kind="stable",
+        ignore_index=True,
+    )
+
+    # Build output paths
+    tec_pc_folder.mkdir(parents=True, exist_ok=True)
+    out_path = tec_pc_folder / f"{station}_{year}{doy:03d}.parquet"
+    tmp_path = out_path.with_suffix(".parquet.tmp")
+
+    # Write to a temp file then atomically rename
+    merged.to_parquet(
+        tmp_path,
+        compression="zstd",
+        compression_level=9,
+        index=False,
+    )
+    tmp_path.replace(out_path)
+
+    return 1
+
+
 def _consolidate_sp(
     new_sp_df: pd.DataFrame,
     sp_file: Path,
@@ -193,6 +248,29 @@ def _consolidate_sp(
 # --------------------------------------------------------------------------
 # Núcleo
 # --------------------------------------------------------------------------
+
+
+def _discard_stations_without_positions(meta_row):
+    
+    sanity_radius_km = 1000.0
+                            
+    x_km = float(meta_row[1])
+    y_km = float(meta_row[2])
+    z_km = float(meta_row[3])
+        
+    # Calcula a distância do centro da Terra até a estação
+    center_displacement = np.sqrt(x_km**2 + y_km**2 + z_km**2)
+    
+    # O "Sanity Check": se estiver dentro da Terra, pule!
+    if center_displacement < sanity_radius_km:
+        # print(f"Estação {colunas[0]} descartada. Distância: {distancia_ao_centro:.2f} km")
+        return True
+        
+
+    
+    
+    
+    
 
 def process_tec(
     tec_folder: Path,
@@ -240,6 +318,11 @@ def process_tec(
 
             head = dic.pop("header", {})
             station_name, meta_row = _extract_station_meta(head)
+            
+            #if a stations don't have coordinates we will discart it
+            if _discard_stations_without_positions(meta_row):
+                continue
+                                   
             stations_meta.append(meta_row)
 
             # Sanidade: filename vs header (canônico = header)
@@ -261,7 +344,8 @@ def process_tec(
 
             # Nome canônico de saída usa o station_name do header
             station_key = (station_name or station_from_name).lower()
-            n = _write_station_parquets(by_const, tec_pc_folder, station_key)
+            # n = _write_station_parquets(by_const, tec_pc_folder, station_key)
+            n = _write_station_parquet_merged(by_const, tec_pc_folder, station_key, year, doy)
             written_files += n
             if n > 0:
                 written_stations += 1
@@ -333,7 +417,7 @@ if __name__ == "__main__":
 
     pairs = resolve_pairs(args, 'rinexPKLReferenceFolder')
     log.info("Encontradas %d pastas year/doy para processar", len(pairs))
-    # pairs = [(2021,295)]
+    pairs = [(2021,295)]
     for year, doy in pairs:
         log.info("=== %d / doy %03d ===", year, doy)
         run(year, doy)
