@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
+from shared.config import ephemeris_dir
 
 import numpy as np
 import pandas as pd
@@ -448,12 +449,35 @@ def concat_daybyday(folder_path, verbose=False):
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 
-def concat_all(folder_base, datein):
+def concat_all_old(folder_base, datein):
+    
     base = Path(folder_base)
     dfs = []
     for i in range(-1, 2):
         d = datein + timedelta(days=i)
         folder_day = base / str(d.year) / d.strftime("%j")
+        df = concat_daybyday(folder_day)
+        if not df.empty:
+            dfs.append(df)
+
+    if not dfs:
+        return pd.DataFrame()
+
+    sp3_all = pd.concat(dfs, ignore_index=True)
+    sp3_all = times(sp3_all)
+    return (sp3_all
+            .sort_values('time_j')
+            .reset_index(drop=True))
+
+
+
+def concat_all(date_in):
+    
+    # base = ephemeris_dir(date_in.year, int(date_in.strftime("%j")))
+    dfs = []
+    for i in range(-1, 2):
+        d = date_in + timedelta(days=i)
+        folder_day = ephemeris_dir(d.year, int(d.strftime("%j")))
         df = concat_daybyday(folder_day)
         if not df.empty:
             dfs.append(df)

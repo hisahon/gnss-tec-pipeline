@@ -64,16 +64,15 @@ def prn_from_file_path(path: Path) -> str:
 # Pickle builder
 # ---------------------------------------------------------------------------
  
-def build_complete_binary(year: int, doy: int, sp3_file: Path, 
-                          lg: logging.LoggerAdapter,
-                          parquet: bool) -> bool:
+def build_complete_binary(year: int, doy: int,
+                          lg: logging.LoggerAdapter) -> bool:
     """Concat days (-1..+2) of SP3 into `sp3_file`. Returns True on success."""
     dt_in = doy_to_date(year, doy)
     # concat_all wants the base folder, not the day folder.
     # sp3_files_folder = sp3_file.parent.parent.parent
        
-    lg.info("GNSS week %d — building %s",
-            calculate_gnss_week(dt_in), sp3_file.name)
+    # lg.info("GNSS week %d — building %s",
+    #         calculate_gnss_week(dt_in), sp3_file.name)
  
     try:
         df_orbit = sp3.concat_all(dt_in)
@@ -86,15 +85,17 @@ def build_complete_binary(year: int, doy: int, sp3_file: Path,
         lg.warning("Empty orbit DataFrame — pickle not written")
         return False
     
-    if parquet:
-        output_folder = ephemeris_parquet_dir(year, doy)
-        output_file = output_folder / f"ORBIT_{year}{doy:03d}.parquet"
-        df_orbit.to_parquet(output_file)
-    else:
-        output_folder = ephemeris_dir(year, doy)
-        output_file = output_folder / f"{year}{doy:03d}.pkl"
-        df_orbit.to_pickle(sp3_file)
-    lg.info("Pickle written: %s (%d rows)", sp3_file, len(df_orbit))
+    
+    output_folder = ephemeris_parquet_dir(year, doy)
+    output_file = output_folder / f"ORBIT_{year}{doy:03d}.parquet"
+    columns_output = ['horario', 'prn', 'x_km', 'y_km', 'z_km']
+    
+    df_orbit[columns_output].to_parquet(output_file)
+    # else:
+    #     output_folder = ephemeris_dir(year, doy)
+    #     output_file = output_folder / f"{year}{doy:03d}.pkl"
+    #     df_orbit.to_pickle(sp3_file)
+    lg.info("Pickle written: %s (%d rows)", output_file, len(df_orbit))
     return True
 
 
@@ -162,11 +163,11 @@ def run(year: int, doy: int) -> None:
         except Exception:
             lg.exception("SP3 download failed")
             return
-        if not build_complete_binary(year, doy, sp3_file, lg, parquet = True):
+        if not build_complete_binary(year, doy, lg):
             return  # nothing to project against
 
     # --- Project positions onto per-PRN parquets ---
-    satellite_positions(year, doy)
+    # satellite_positions(year, doy)
 
 
 
