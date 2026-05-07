@@ -173,5 +173,81 @@ def load_tec_with_neighbors(
             WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
               AND horario <  TIMESTAMP '{day_end.isoformat()}'
             ORDER BY prn, horario
+            """).df()
+    return df
+
+# --------------------------------------------------------------------------
+# Carregar informações
+# --------------------------------------------------------------------------
+
+def get_station_names(year: int, doy: int, extension: str = "parquet") -> list[str]:
+    """
+    Recursivamente busca arquivos com a extensão especificada e retorna
+    uma lista ordenada com o nome das estações (únicas).
+    
+    O nome da estação é definido como os 4 primeiros caracteres do arquivo.
+    """
+    # folder = Path(folder)
+    folder = tec_pc_dir(year, doy)
+    ext = extension if extension.startswith('.') else f'.{extension}'
+    ext = ext.lower()
+
+    # Usamos set comprehension para extrair os 4 primeiros caracteres do nome 
+    # do arquivo (p.name[:4]) e garantir que não haverá duplicatas.
+    stations = {
+        p.name[:4] 
+        for p in folder.rglob('*') 
+        if p.is_file() and p.suffix.lower() == ext
+    }
+    
+    # Retorna a lista de estações ordenada alfabeticamente
+    return sorted(list(stations))
+
+
+
+def load_tec_with_neighbors_v2(
+    year: int,
+    doy: int,
+    station: str,
+    with_neighbors: bool = True,
+) -> pd.DataFrame:
+    """Read the central day's TEC, optionally padded with DOY±1 neighbors.
+
+    Returns rows for the central day only — neighbors (when loaded) just
+    feed downstream interpolators slack at day boundaries.
+    """
+    base = dt.date(year, 1, 1) + dt.timedelta(days=doy - 1)
+
+    # -1, 0, +1 with neighbors; only 0 without.
+    offsets = (-1, 0, 1) if with_neighbors else (0,)
+    pairs = [
+        (
+            (base + dt.timedelta(days=k)).year,
+            (base + dt.timedelta(days=k)).timetuple().tm_yday,
+        )
+        for k in offsets
+    ]
+
+    files = []
+    for y, d in pairs:
+        path = tec_pc_dir(y, d) 
+        # O uso do .rglob com '*' no lugar da constelação pega todos os arquivos da estação, 
+        # independentemente de estar na pasta G/, R/, etc.
+        files.extend(path.rglob(f"{station}_{y}{d:03d}.parquet"))
+
+    if not files:
+        return pd.DataFrame(columns=["prn", "horario", "tec_pcarrier"])
+
+    # Always filter to the central day; neighbors are read just for padding.
+    day_start = base - dt.timedelta(days=1)
+    day_end = base + dt.timedelta(days=1)
+
+    with duckdb.connect(":memory:") as con:
+        df = con.execute(f"""
+            SELECT prn, horario, tec_pcarrier
+            FROM read_parquet({[str(f) for f in files]!r})
+            WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
+              AND horario <  TIMESTAMP '{day_end.isoformat()}'
+            ORDER BY prn, horario
         """).df()
     return df
