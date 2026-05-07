@@ -268,8 +268,6 @@ def _discard_stations_without_positions(meta_row):
     else:
         return False
         
-
-    
         
 def process_tec(
     tec_folder: Path,
