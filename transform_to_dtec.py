@@ -38,10 +38,11 @@ from shared.prn_store import load_tec_with_neighbors_v2, get_station_names
 # Pipeline parameters
 # ---------------------------------------------------------------------------
 # SAMPLING_RATE_HZ  = 4 / 60          # 4 samples per minute (15 s sampling)
-DETREND_WIN_SEC   = 600             # moving-average window for detrending [s]
-BANDPASS_CUTOFFS  = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
-BANDPASS_ORDER    = 4
-SPIKE_DIFF_LIMIT  = 5.0             # |diff(TEC)| threshold for spike removal
+DETREND_WIN_MIN  = 10
+DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
+BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
+BANDPASS_ORDER   = 4
+SPIKE_DIFF_LIMIT = 5.0             # |diff(TEC)| threshold for spike removal
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +483,7 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
     
     # df[dt_col] = df[dt_col].dt.tz_localize(None)
     df = df[(df[dt_col] > dt_in - timedelta(seconds=2*DETREND_WIN_SEC)) & 
-            (df[dt_col] < dt_in + timedelta(seconds=2*DETREND_WIN_SEC))]
+            (df[dt_col] < dt_in + timedelta(days=1, seconds=2*DETREND_WIN_SEC))]
     
     if df.empty:
         return df
@@ -522,19 +523,20 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
         # )
 
         # Pular se o sinal ficar totalmente vazio após os filtros
-        if s.dropna().empty or len(y_diff) == 0:
+        if s.dropna().empty or np.sum(~np.isnan(y_cv)) < 20:
             continue
 
         # Inserir o resultado processado como uma nova coluna
         # df_prn['dtec'] = y_cv
         
+        dtec_key = f'dtec_{DETREND_WIN_MIN}min'
         df_result = pd.DataFrame({
-            dt_col: df_prn.index,
-            'prn': prn_val,
-            'dtec': y_cv
-        })
+                                dt_col: df_prn.index,
+                                'prn': prn_val,
+                                dtec_key: y_cv
+                                })
         
-        df_result = df_result.dropna(subset=['dtec'])
+        df_result = df_result.dropna(subset=[dtec_key])
         
         # Adiciona à lista apenas se sobrou algum dado após o dropna
         if not df_result.empty:
@@ -568,18 +570,29 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
 
     # Recombinar todos os PRNs processados
     if processed_dfs:
-        df_final = pd.concat(processed_dfs, ignore_index=True)
-        # Garantir que a ordem cronológica e o agrupamento por PRN sejam mantidos
-        
-        df_final = df_final[(df_final[dt_col] >= dt_in) & 
-                            (df_final[dt_col] < dt_in + timedelta(days=1))]
-        
-        
-        df_final = df_final.sort_values([dt_col, 'prn'])
-        return df_final
-    else:
+            df_final = pd.concat(processed_dfs, ignore_index=True)
+            # Garantir que a ordem cronológica e o agrupamento por PRN sejam mantidos
+            
+            df_final = df_final[(df_final[dt_col] >= dt_in) & 
+                                (df_final[dt_col] < dt_in + timedelta(days=1))]
+            
+            df_final = df_final.sort_values([dt_col, 'prn'])
+            
+            # --- VERIFICAÇÃO DE QUANTIDADE DE DADOS ---
+            qtd_linhas = len(df_final)
+            
+            # Opcional: imprimir no console ou em log para acompanhamento
+            print(f"Total de registros a serem salvos: {qtd_linhas}")
+            
+            # Salva o arquivo apenas se não estiver vazio
+            if not df_final.empty: # ou "if qtd_linhas > 0:"
+                tec_folder = dtec_pc_dir(year, doy)
+                df_final[[dt_col, 'prn', dtec_key]].to_parquet(tec_folder / f'{station}_dtec_{year}{doy}.parquet', index=False)
+            else:
+                print(f"Aviso: DataFrame vazio para o dia {year}-{doy}. Arquivo Parquet não foi gerado.")
+    # else:
         # Se nenhum dado válido sobrou, retorna um df vazio com a nova estrutura de colunas
-        return pd.DataFrame(columns=list(df.columns) + ['dtec'])
+        # return pd.DataFrame(columns=list(df.columns) + ['dtec'])
 
 
 # def plot_tec_por_receptor_de_pasta(
@@ -614,5 +627,5 @@ if __name__ == "__main__":
 
     for station in stations:
         df_station_tec = load_tec_with_neighbors_v2(year, doy, station)
-        df_station_dtec = aplicar_filtros_dtec(df_station_tec, plot_figs=True)
-        df_station_dtec.to_parquet(dtec_pc_dir(year, doy))
+        df_station_dtec = aplicar_filtros_dtec(df_station_tec, station, plot_figs=False)
+        # df_station_dtec.to_parquet(dtec_pc_dir(year, doy))
