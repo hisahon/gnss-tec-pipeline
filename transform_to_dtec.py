@@ -617,7 +617,7 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
 # Script entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    year, doy = 2025, 316
+    year, doy = 2025, 317
     dt_in = datetime.strptime(f"{year}-{doy}", "%Y-%j")
 
     # folder_base = Path(cv.folder_db, 'ionosphere', 'tec_pc', f'{year}', f'{doy}')

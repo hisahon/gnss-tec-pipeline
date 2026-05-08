@@ -21,7 +21,7 @@ import duckdb
 
 import pandas as pd
 import pyarrow.parquet as pq
-from shared.config import tec_pc_dir
+from shared.config import tec_pc_dir, dtec_pc_dir
 
 log = logging.getLogger("process.prn_store")
 
@@ -231,8 +231,52 @@ def load_tec_with_neighbors_v2(
     files = []
     for y, d in pairs:
         path = tec_pc_dir(y, d) 
-        # O uso do .rglob com '*' no lugar da constelação pega todos os arquivos da estação, 
-        # independentemente de estar na pasta G/, R/, etc.
+        files.extend(path.rglob(f"{station}_{y}{d:03d}.parquet"))
+
+    if not files:
+        return pd.DataFrame(columns=["prn", "horario", "tec_pcarrier"])
+
+    # Always filter to the central day; neighbors are read just for padding.
+    day_start = base - dt.timedelta(days=1)
+    day_end = base + dt.timedelta(days=1)
+
+    with duckdb.connect(":memory:") as con:
+        df = con.execute(f"""
+            SELECT prn, horario, tec_pcarrier
+            FROM read_parquet({[str(f) for f in files]!r})
+            WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
+              AND horario <  TIMESTAMP '{day_end.isoformat()}'
+            ORDER BY prn, horario
+        """).df()
+    return df
+
+
+def load_dtec_with_neighbors(
+    year: int,
+    doy: int,
+    station: str,
+    with_neighbors: bool = True,
+) -> pd.DataFrame:
+    """Read the central day's TEC, optionally padded with DOY±1 neighbors.
+
+    Returns rows for the central day only — neighbors (when loaded) just
+    feed downstream interpolators slack at day boundaries.
+    """
+    base = dt.date(year, 1, 1) + dt.timedelta(days=doy - 1)
+
+    # -1, 0, +1 with neighbors; only 0 without.
+    offsets = (-1, 0, 1) if with_neighbors else (0,)
+    pairs = [
+        (
+            (base + dt.timedelta(days=k)).year,
+            (base + dt.timedelta(days=k)).timetuple().tm_yday,
+        )
+        for k in offsets
+    ]
+
+    files = []
+    for y, d in pairs:
+        path = dtec_pc_dir(y, d) 
         files.extend(path.rglob(f"{station}_{y}{d:03d}.parquet"))
 
     if not files:
