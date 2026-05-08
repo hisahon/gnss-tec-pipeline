@@ -38,7 +38,7 @@ from shared.prn_store import load_tec_with_neighbors_v2, get_station_names
 # Pipeline parameters
 # ---------------------------------------------------------------------------
 # SAMPLING_RATE_HZ  = 4 / 60          # 4 samples per minute (15 s sampling)
-DETREND_WIN_MIN  = 10
+DETREND_WIN_MIN  = 30
 DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
 BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
 BANDPASS_ORDER   = 4
@@ -578,11 +578,11 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
             
             df_final = df_final.sort_values([dt_col, 'prn'])
             
-            # --- VERIFICAÇÃO DE QUANTIDADE DE DADOS ---
-            qtd_linhas = len(df_final)
+            # # --- VERIFICAÇÃO DE QUANTIDADE DE DADOS ---
+            # qtd_linhas = len(df_final)
             
-            # Opcional: imprimir no console ou em log para acompanhamento
-            print(f"Total de registros a serem salvos: {qtd_linhas}")
+            # # Opcional: imprimir no console ou em log para acompanhamento
+            print(f"Finalizado a estação: {station}")
             
             # Salva o arquivo apenas se não estiver vazio
             if not df_final.empty: # ou "if qtd_linhas > 0:"
