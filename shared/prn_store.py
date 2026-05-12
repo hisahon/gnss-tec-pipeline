@@ -256,12 +256,14 @@ def load_dtec_with_neighbors(
     doy: int,
     station: str,
     with_neighbors: bool = True,
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
+    
     """Read the central day's TEC, optionally padded with DOY±1 neighbors.
 
     Returns rows for the central day only — neighbors (when loaded) just
     feed downstream interpolators slack at day boundaries.
     """
+    
     base = dt.date(year, 1, 1) + dt.timedelta(days=doy - 1)
 
     # -1, 0, +1 with neighbors; only 0 without.
@@ -276,22 +278,40 @@ def load_dtec_with_neighbors(
 
     files = []
     for y, d in pairs:
-        path = dtec_pc_dir(y, d) 
-        files.extend(path.rglob(f"{station}_{y}{d:03d}.parquet"))
+        # Pega o diretório inteiro do dia específico usando a configuração
+        folder_dtec = cfg.dtec_pc_dir(y, d) 
+        
+        # Lê TODOS os arquivos .parquet dentro dessa pasta
+        if folder_dtec.exists():
+            files.extend(folder_dtec.rglob("*.parquet"))
 
     if not files:
-        return pd.DataFrame(columns=["prn", "horario", "tec_pcarrier"])
+        return pd.DataFrame(columns=["prn", "horario"])
 
-    # Always filter to the central day; neighbors are read just for padding.
     day_start = base - dt.timedelta(days=1)
     day_end = base + dt.timedelta(days=1)
 
     with duckdb.connect(":memory:") as con:
+        # Lê todos os arquivos, empilhando as colunas dtec_{n}min dinamicamente
         df = con.execute(f"""
-            SELECT prn, horario, tec_pcarrier
-            FROM read_parquet({[str(f) for f in files]!r})
-            WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
-              AND horario <  TIMESTAMP '{day_end.isoformat()}'
-            ORDER BY prn, horario
-        """).df()
+                            SELECT *
+                            FROM read_parquet({[str(f) for f in files]!r}, union_by_name=true)
+                            WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
+                              AND horario <  TIMESTAMP '{day_end.isoformat()}'
+                          """).df()
+
+    if df.empty:
+        return df
+
+    # Agrupa por prn e horario colapsando as colunas lado a lado
+    df = df.groupby(["prn", "horario"], as_index=False).first()
+    
+    # Filtra mantendo apenas as colunas de identificação e os dados dtec_
+    colunas_dtec = [col for col in df.columns if col.startswith("dtec_")]
+    colunas_finais = ["prn", "horario"] + colunas_dtec
+    df = df[colunas_finais]
+
+    # Ordena para manter a saída cronológica e organizada
+    df = df.sort_values(["prn", "horario"]).reset_index(drop=True)
+
     return df

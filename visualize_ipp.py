@@ -172,11 +172,19 @@ def main(root_dir, year, doy, height=350.0, save_fig=False):
     """Core workflow that can be called from CLI or IDE."""
 
     #Loading Files
-    file_ephemeris = cfg.ephemeris_parquet_dir(year, doy)
-    file_dtec = cfg.dtec_pc_dir(year, doy)
-    file_receivers = cfg.station_positions_dir()
+    folder_ephemeris = cfg.ephemeris_parquet_dir(year, doy)
+    folder_dtec = cfg.dtec_pc_dir(year, doy)
+    folder_receivers = cfg.station_positions_dir()
+    
+    file_ephemeris = folder_ephemeris / f"ORBIT_{year}{doy:03d}.parquet"
+    df_ephemeris = pd.read_parquet(file_ephemeris)
+    
     ...
-
+    
+    
+    
+    
+    
 
 
 
