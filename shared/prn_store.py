@@ -250,68 +250,63 @@ def load_tec_with_neighbors_v2(
         """).df()
     return df
 
-
-def load_dtec_with_neighbors(
+def load_all_stations_dtec(
     year: int,
     doy: int,
-    station: str,
-    with_neighbors: bool = True,
+    with_neighbors: bool = False,
     ) -> pd.DataFrame:
     
-    """Read the central day's TEC, optionally padded with DOY±1 neighbors.
-
-    Returns rows for the central day only — neighbors (when loaded) just
-    feed downstream interpolators slack at day boundaries.
-    """
-    
     base = dt.date(year, 1, 1) + dt.timedelta(days=doy - 1)
-
-    # -1, 0, +1 with neighbors; only 0 without.
     offsets = (-1, 0, 1) if with_neighbors else (0,)
-    pairs = [
-        (
-            (base + dt.timedelta(days=k)).year,
-            (base + dt.timedelta(days=k)).timetuple().tm_yday,
-        )
-        for k in offsets
-    ]
+    pairs = [( (base + dt.timedelta(days=k)).year, (base + dt.timedelta(days=k)).timetuple().tm_yday ) for k in offsets]
 
     files = []
     for y, d in pairs:
-        # Pega o diretório inteiro do dia específico usando a configuração
         folder_dtec = dtec_pc_dir(y, d) 
-        
-        # Lê TODOS os arquivos .parquet dentro dessa pasta
         if folder_dtec.exists():
             files.extend(folder_dtec.rglob("*.parquet"))
 
     if not files:
-        return pd.DataFrame(columns=["prn", "horario"])
+        return pd.DataFrame()
 
     day_start = base - dt.timedelta(days=1)
     day_end = base + dt.timedelta(days=1)
 
     with duckdb.connect(":memory:") as con:
-        # Lê todos os arquivos, empilhando as colunas dtec_{n}min dinamicamente
+        # A MÁGICA ACONTECE AQUI:
+        # Transferimos o groupby, o first e a ordenação para dentro da query SQL.
+        # O DuckDB processa isso no disco/cache de forma super otimizada.
         df = con.execute(f"""
-                            SELECT *
-                            FROM read_parquet({[str(f) for f in files]!r}, union_by_name=true)
-                            WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
-                              AND horario <  TIMESTAMP '{day_end.isoformat()}'
-                          """).df()
+            SELECT 
+                   substr(list_extract(string_split(filename, '/'), -1), 1, 4) as station,
+                   prn,
+                   horario,
+                   -- Pega o first() dinamicamente de todas as colunas que começam com 'dtec_'
+                   first(COLUMNS('^dtec_.*')) 
+            FROM read_parquet({[str(f) for f in files]!r}, union_by_name=true, filename=true)
+            WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
+              AND horario <  TIMESTAMP '{day_end.isoformat()}'
+            GROUP BY station, prn, horario
+            ORDER BY station, prn, horario
+        """).df()
 
     if df.empty:
         return df
-
-    # Agrupa por prn e horario colapsando as colunas lado a lado
-    df = df.groupby(["prn", "horario"], as_index=False).first()
     
-    # Filtra mantendo apenas as colunas de identificação e os dados dtec_
-    colunas_dtec = [col for col in df.columns if col.startswith("dtec_")]
-    colunas_finais = ["prn", "horario"] + colunas_dtec
-    df = df[colunas_finais]
+    # Como o DuckDB aplica a função 'first()', ele pode renomear a coluna para 'first(dtec_1min)'.
+    # Essa linha limpa o nome das colunas de volta para o padrão original (ex: dtec_1min).
+    df.columns = [col.replace('first(', '').replace(')', '') for col in df.columns]
+    
+    # ---------------------------------------------------------
+    # Agora o Pandas recebe um DataFrame já resumido e ordenado!
+    # Só precisamos aplicar a otimização final nos tipos de dados.
+    # ---------------------------------------------------------
+    df['station'] = df['station'].astype('category')
+    df['prn'] = df['prn'].astype('category') 
 
-    # Ordena para manter a saída cronológica e organizada
-    df = df.sort_values(["prn", "horario"]).reset_index(drop=True)
-
+    colunas_dtec = [c for c in df.columns if c.startswith("dtec_")]
+    for col in colunas_dtec:
+        df[col] = pd.to_numeric(df[col], downcast='float')
+    
+    # Não precisamos mais do groupby e sort_values aqui no Pandas!
     return df

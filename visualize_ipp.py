@@ -14,7 +14,7 @@ from pathlib import Path
 
 # Import custom modules
 from shared.geometry import ipp_geometric
-from shared.prn_store import load_tec_with_neighbors_v2
+from shared.prn_store import load_all_stations_dtec
 import shared.config as cfg
 
 # ==========================================
@@ -172,11 +172,11 @@ def main(root_dir, year, doy, height=350.0, save_fig=False):
     """Core workflow that can be called from CLI or IDE."""
 
     #Loading Files
-    folder_ephemeris = cfg.ephemeris_parquet_dir(year, doy)
+    # folder_ephemeris = cfg.ephemeris_parquet_dir(year, doy)
     
-    folder_receivers = cfg.station_positions_dir()
+    df_dtec = load_all_stations_dtec(year, doy)
     
-    file_ephemeris = folder_ephemeris / f"ORBIT_{year}{doy:03d}.parquet"
+    file_ephemeris = cfg.ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
     df_ephemeris = pd.read_parquet(file_ephemeris)
     
     
