@@ -279,7 +279,7 @@ def load_dtec_with_neighbors(
     files = []
     for y, d in pairs:
         # Pega o diretório inteiro do dia específico usando a configuração
-        folder_dtec = cfg.dtec_pc_dir(y, d) 
+        folder_dtec = dtec_pc_dir(y, d) 
         
         # Lê TODOS os arquivos .parquet dentro dessa pasta
         if folder_dtec.exists():
