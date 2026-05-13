@@ -278,12 +278,12 @@ def load_all_stations_dtec(
         # O DuckDB processa isso no disco/cache de forma super otimizada.
         df = con.execute(f"""
             SELECT 
-                   substr(list_extract(string_split(filename, '/'), -1), 1, 4) as station,
+                   substr(list_extract(string_split(replace(filename, chr(92), '/'), '/'), -1), 1, 4) as station,
                    prn,
                    horario,
                    -- Pega o first() dinamicamente de todas as colunas que começam com 'dtec_'
                    first(COLUMNS('^dtec_.*')) 
-            FROM read_parquet({[str(f) for f in files]!r}, union_by_name=true, filename=true)
+            FROM read_parquet({[f.as_posix() for f in files]!r}, union_by_name=true, filename=true)
             WHERE horario >= TIMESTAMP '{day_start.isoformat()}'
               AND horario <  TIMESTAMP '{day_end.isoformat()}'
             GROUP BY station, prn, horario

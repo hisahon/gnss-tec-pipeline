@@ -5,8 +5,44 @@ Created on Mon Apr 27 18:01:49 2026
 
 @author: hisashi
 """
-
+import pandas as pd
 import numpy as np
+from scipy.interpolate import PchipInterpolator
+from datetime import datetime
+
+GNSS_EPOCH = datetime(1980, 1, 6, 0, 0, 0)
+
+def satellite_coordinates(df_orb: pd.DataFrame, common_prns: np.ndarray) -> dict:
+    """
+    Cria interpoladores PCHIP de coordenadas para cada PRN.
+
+    Parâmetros:
+        df_orb      : DataFrame com colunas 'prn', 'horario' (GPS Time), 'x_km', 'y_km', 'z_km'
+        common_prns : array com os PRNs a processar
+
+    Retorna:
+        dict → {prn: {'horario_sec': [...], 'fx': interpolador, 'fy': interpolador, 'fz': interpolador}}
+    """
+    result = {}
+
+    for prn in common_prns:
+        group_orb = (df_orb[df_orb['prn'] == prn]
+             .drop_duplicates(subset='horario')
+             .sort_values('horario'))
+
+        orb_t = (group_orb["horario"] - GNSS_EPOCH).dt.total_seconds().to_numpy()
+        orb_x = group_orb['x_km'].to_numpy()
+        orb_y = group_orb['y_km'].to_numpy()
+        orb_z = group_orb['z_km'].to_numpy()
+
+        result[prn] = {
+            'horario_sec': orb_t,
+            'fx'         : PchipInterpolator(orb_t, orb_x),
+            'fy'         : PchipInterpolator(orb_t, orb_y),
+            'fz'         : PchipInterpolator(orb_t, orb_z),
+        }
+
+    return result
 
 # ---------------------------------------------------------------------
 # GEOMETRY: IPP (THIN-SHELL)
@@ -104,6 +140,7 @@ def ipp_calc(prn_coordinates, station_coordinates, H_km, RE_km=6371.0):
     # interest; here IPPs north of 20N and east of -20E are dropped
     # as a focus on the South American sector)
     # ---------------------------------------------------------------
+    
     # latitude > 20 deg mask
     mask = np.degrees(lat_pp) > 20
     lat_pp = np.where(mask, np.nan, lat_pp)

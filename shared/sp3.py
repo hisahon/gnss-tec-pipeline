@@ -5,7 +5,7 @@ Autor original: Honda, R. H. (Set/2022).
 """
 import gzip
 import math
-import os
+# import os
 from pathlib import Path
 from datetime import datetime, timedelta
 from shared.config import ephemeris_dir
@@ -353,30 +353,7 @@ def coord_cartesian(inter_function, t_input):
 #     return Df_RINEX
 
 
-def satellite_coordinates(df_prn, df_orb_prn, prn, ref_date):
 
-    orb_t = df_orb_prn['sec'].to_numpy()
-    orb_x = df_orb_prn['x_km'].to_numpy()   
-    orb_y = df_orb_prn['y_km'].to_numpy()   
-    orb_z = df_orb_prn['z_km'].to_numpy()   
-    
-
-    prn_t = (df_prn["horario"] - ref_date).dt.total_seconds().astype(int).to_numpy()
-    # prn_t = df_prn['sec'].to_numpy()
-        
-    fx = PchipInterpolator(orb_t, orb_x)
-    fy = PchipInterpolator(orb_t, orb_y)
-    fz = PchipInterpolator(orb_t, orb_z)
-    
-    x_i = fx(prn_t)
-    y_i = fy(prn_t)
-    z_i = fz(prn_t)
-    
-    df_prn['x_km'] = x_i
-    df_prn['y_km'] = y_i
-    df_prn['z_km'] = z_i
-    
-    return df_prn
 
 
 

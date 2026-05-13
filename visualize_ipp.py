@@ -10,12 +10,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
-from pathlib import Path
+# from pathlib import Path
 
 # Import custom modules
 from shared.geometry import ipp_geometric
 from shared.prn_store import load_all_stations_dtec
 import shared.config as cfg
+from shared.geometry import satellite_coordinates
 
 # ==========================================
 # 1. Processing: Interpolate & Calculate IPP
@@ -171,52 +172,36 @@ def parse_arguments():
 def main(root_dir, year, doy, height=350.0, save_fig=False):
     """Core workflow that can be called from CLI or IDE."""
 
-    #Loading Files
-    # folder_ephemeris = cfg.ephemeris_parquet_dir(year, doy)
-    
-    df_dtec = load_all_stations_dtec(year, doy)
+
+    files=[]
+    folder_dtec = cfg.dtec_pc_dir(year, doy) 
+    if folder_dtec.exists():
+        files.extend(folder_dtec.rglob("*.parquet"))
+        
+    stations_names_dtec = np.array([f.name[:4] for f in files])
+
     
     file_ephemeris = cfg.ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
     df_ephemeris = pd.read_parquet(file_ephemeris)
+    prns_ephemeris = df_ephemeris['prn'].unique()
+    
+    file_station_positions = cfg.station_positions_dir() / f"SP_{year}-{doy}.parquet"
+    df_station_positions = pd.read_parquet(file_station_positions)
+    station_names_coordinates = df_station_positions['name'].unique()
+    
+    # common_prns = np.intersect1d(prns_dtec, prns_ephemeris)
+    # common_stations = np.intersect1d(stations_names_dtec, station_names_coordinates)
+    
+    dic_ephemeris = satellite_coordinates(df_ephemeris, common_prns)
+    
+    # for station in common_stations:
+        
     
     
     
     ...
     
-    
-    
-    
-    
 
-
-
-
-    # # 1. Load the dTEC data
-    # print(f"Loading data for {station} on {year}/{doy:03d}...")
-    # df_raw = load_tec_with_neighbors_v2(
-    #     root=root_path, 
-    #     year=year, 
-    #     doy=doy, 
-    #     station=station
-    # )
-
-    # # 2. Interpolate satellites and compute IPP
-    # df_processed = compute_station_ipp(
-    #     df_dtec=df_raw, 
-    #     sat_filepath=sat_file, 
-    #     rx_coords_tuple=rx_coord_tuple, 
-    #     H_km=height
-    # )
-
-    # # 3. Generate the Figure
-    # save_path = f"{station}_ipp_map_{year}_{doy:03d}.png" if save_fig else None
-    
-    # plot_ipp_map(
-    #     df_ipp=df_processed, 
-    #     rx_coords_tuple=rx_coord_tuple, 
-    #     station_name=station,
-    #     save_path=save_path
-    # )
 
 
 if __name__ == "__main__":
