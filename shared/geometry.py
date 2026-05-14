@@ -91,58 +91,42 @@ def interpolate_orbits(df_orb: pd.DataFrame, prns: Optional[np.ndarray] = None) 
 
 #     return df_rinex, dropped
 
-def satellite_xyz_v2(df_tec_dtec, dic_orbit):
-    """
-    Add satellite ECEF coordinates (x_km, y_km, z_km) to the GNSS observation DataFrame
-    using interpolated SP3 orbit data.
-
-    Parameters:
-        df_rinex (pd.DataFrame): GNSS observation DataFrame with 'prn' and 'time_j' columns.
-        df_orbit (pd.DataFrame): SP3 orbit DataFrame used for interpolation.
-
-    Returns:
-        pd.DataFrame: Updated DataFrame with satellite coordinates.
-    """
-    prns_dtec = np.array((df_tec_dtec['prn'].unique()))
+def satellite_xyz_v2(df_tec_dtec, orbit_dict):
+    # Coordinate columns to be filled
     coord_cols = ['x_km', 'y_km', 'z_km']
-    df_tec_dtec[coord_cols] = None  # Initialize columns
+    df_tec_dtec[coord_cols] = np.nan
 
-    prns_orbits = np.array(list(dic_orbit))
-    common_prns = np.intersect1d(prns_dtec, prns_orbits)
-    
+    # Find PRNs present in both the dataframe and the orbit dictionary
+    prns_in_data = df_tec_dtec['prn'].unique()
+    common_prns = np.intersect1d(prns_in_data, list(orbit_dict))
+
     dropped = []
-
     for prn in common_prns:
-        
-        idxs = df_tec_dtec['prn'] == prn
-        
+        # Boolean mask for rows belonging to this PRN
+        mask = df_tec_dtec['prn'] == prn
+        prn_slice = df_tec_dtec[mask]
+
+        # Convert timestamps to seconds since GNSS epoch
+        times = (prn_slice["timestamp"] - GNSS_EPOCH).dt.total_seconds().to_numpy()
+
         try:
-            
-            dic_orbit[prn]
-            
-            Inter_prn, keep_info = data_interpol(df_orbit, prn)
-
-            if isinstance(Inter_prn, str):
-
-                dropped.append(prn)
-                df_rinex = df_rinex[~idxs]
-
-                continue
-
-            time_j = df_rinex.loc[idxs, 'time_j']
-            prn_xyz = coord_cartesian(Inter_prn, time_j)
-
-            df_rinex.loc[idxs, coord_cols] = prn_xyz.values
-
+            # Interpolate satellite coordinates using precomputed spline functions
+            df_tec_dtec.loc[mask, 'x_km'] = orbit_dict[prn]['fx_km'](times)
+            df_tec_dtec.loc[mask, 'y_km'] = orbit_dict[prn]['fy_km'](times)
+            df_tec_dtec.loc[mask, 'z_km'] = orbit_dict[prn]['fz_km'](times)
         except Exception as e:
-            print(f"[ERROR] {prn}: {e}")
+            print(f"[ERROR] PRN {prn}: {e}")
             dropped.append(prn)
-            df_rinex = df_rinex[~idxs]
 
-    # if dropped:
-    #     print(f"[INFO] Dropped PRNs: {dropped} (total: {len(dropped)})")
+    # Remove rows belonging to PRNs that raised errors
+    if dropped:
+        df_tec_dtec = df_tec_dtec[~df_tec_dtec['prn'].isin(dropped)]
+        print(f"[INFO] Dropped PRNs: {dropped} (total: {len(dropped)})")
 
-    return df_rinex, dropped
+    # Drop rows with missing coordinates (PRNs absent from orbit_dict)
+    df_tec_dtec.dropna(subset=coord_cols, inplace=True)
+
+    return df_tec_dtec, dropped
 
 # ---------------------------------------------------------------------
 # GEOMETRY: IPP (THIN-SHELL)
