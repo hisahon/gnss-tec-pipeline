@@ -16,7 +16,8 @@ from scipy.interpolate import interp1d
 from shared.geometry import ipp_geometric
 from shared.prn_store import load_all_stations_dtec
 import shared.config as cfg
-from shared.geometry import satellite_coordinates
+from shared.geometry import interpolate_orbits, satellite_xyz_v2
+# from shared.sp3 import satellite_xyz_v2
 
 # ==========================================
 # 1. Processing: Interpolate & Calculate IPP
@@ -172,27 +173,81 @@ def parse_arguments():
 def main(root_dir, year, doy, height=350.0, save_fig=False):
     """Core workflow that can be called from CLI or IDE."""
 
-
-    files=[]
+    
+    #Read all dtec files
+    dtec_files=[]
     folder_dtec = cfg.dtec_pc_dir(year, doy) 
     if folder_dtec.exists():
-        files.extend(folder_dtec.rglob("*.parquet"))
-        
-    stations_names_dtec = np.array([f.name[:4] for f in files])
-
+        dtec_files.extend(folder_dtec.rglob("*.parquet"))
     
+    # #Load the station coordinates
+    # file_station_positions = cfg.station_positions_dir() / f"SP_{year}-{doy}.parquet"
+    # df_station_positions = pd.read_parquet(file_station_positions)
+    
+    # #Comparison of stations present on dtec and meta files
+    # stations_names_dtec = np.array([f.name[:4] for f in dtec_files])
+    # station_names_coordinates = df_station_positions['name'].unique()
+    
+    # common_stations = np.intersect1d(stations_names_dtec, station_names_coordinates)
+    
+    
+    #Reading the satellite positons 5min cadency
     file_ephemeris = cfg.ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
     df_ephemeris = pd.read_parquet(file_ephemeris)
     prns_ephemeris = df_ephemeris['prn'].unique()
     
-    file_station_positions = cfg.station_positions_dir() / f"SP_{year}-{doy}.parquet"
-    df_station_positions = pd.read_parquet(file_station_positions)
-    station_names_coordinates = df_station_positions['name'].unique()
+    dic_ephemeris = interpolate_orbits(df_ephemeris, prns_ephemeris)
+    
+    
+    
+    
+    
+    
+    
+    #Doing the processing file by file
+    for dtec_file in dtec_files:
+        dtec_data = pd.read_parquet(dtec_file)
+        
+        dtec_data_withcoordinates = satellite_xyz_v2(dtec_data, dic_ephemeris)
+        
+        # prns_dtec = dtec_data['prn'].unique()
+        # common_prns = np.intersect1d(prns_dtec, prns_ephemeris)
+        
+        # for prn in common_prns:
+            
+            
+            
+        
+        
+        
+        ...
+        
+        
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+    
     
     # common_prns = np.intersect1d(prns_dtec, prns_ephemeris)
     # common_stations = np.intersect1d(stations_names_dtec, station_names_coordinates)
     
-    dic_ephemeris = satellite_coordinates(df_ephemeris, common_prns)
+    # dic_ephemeris = satellite_coordinates(df_ephemeris, common_prns)
     
     # for station in common_stations:
         

@@ -358,49 +358,6 @@ def coord_cartesian(inter_function, t_input):
 
 
 
-def satellite_xyz(df_rinex, df_orbit):
-    """
-    Add satellite ECEF coordinates (x_km, y_km, z_km) to the GNSS observation DataFrame
-    using interpolated SP3 orbit data.
-
-    Parameters:
-        df_rinex (pd.DataFrame): GNSS observation DataFrame with 'prn' and 'time_j' columns.
-        df_orbit (pd.DataFrame): SP3 orbit DataFrame used for interpolation.
-
-    Returns:
-        pd.DataFrame: Updated DataFrame with satellite coordinates.
-    """
-    prns = sorted(df_rinex['prn'].unique())
-    coord_cols = ['x_km', 'y_km', 'z_km']
-    df_rinex[coord_cols] = None  # Initialize columns
-    dropped = []
-
-    for prn in prns:
-        idxs = df_rinex['prn'] == prn
-        try:
-            Inter_prn, keep_info = data_interpol(df_orbit, prn)
-            if isinstance(Inter_prn, str):
-                # print(f"[SKIP] {prn}: {keep_info}")
-                dropped.append(prn)
-                df_rinex = df_rinex[~idxs]
-                continue
-
-            time_j = df_rinex.loc[idxs, 'time_j']
-            prn_xyz = coord_cartesian(Inter_prn, time_j)
-
-            df_rinex.loc[idxs, coord_cols] = prn_xyz.values
-
-        except Exception as e:
-            print(f"[ERROR] {prn}: {e}")
-            dropped.append(prn)
-            df_rinex = df_rinex[~idxs]
-
-    # if dropped:
-    #     print(f"[INFO] Dropped PRNs: {dropped} (total: {len(dropped)})")
-
-    return df_rinex, dropped
-
-
 
 def concat_daybyday(folder_path, verbose=False):
     folder = Path(folder_path)

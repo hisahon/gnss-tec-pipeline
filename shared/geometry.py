@@ -9,10 +9,11 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import PchipInterpolator
 from datetime import datetime
+from typing import Optional
 
 GNSS_EPOCH = datetime(1980, 1, 6, 0, 0, 0)
 
-def satellite_coordinates(df_orb: pd.DataFrame, common_prns: np.ndarray) -> dict:
+def interpolate_orbits(df_orb: pd.DataFrame, prns: Optional[np.ndarray] = None) -> dict:
     """
     Cria interpoladores PCHIP de coordenadas para cada PRN.
 
@@ -23,9 +24,13 @@ def satellite_coordinates(df_orb: pd.DataFrame, common_prns: np.ndarray) -> dict
     Retorna:
         dict → {prn: {'horario_sec': [...], 'fx': interpolador, 'fy': interpolador, 'fz': interpolador}}
     """
+    
+    if prns is None:
+        prns = df_orb['prn'].unique()
+        
     result = {}
 
-    for prn in common_prns:
+    for prn in prns:
         group_orb = (df_orb[df_orb['prn'] == prn]
              .drop_duplicates(subset='horario')
              .sort_values('horario'))
@@ -36,13 +41,108 @@ def satellite_coordinates(df_orb: pd.DataFrame, common_prns: np.ndarray) -> dict
         orb_z = group_orb['z_km'].to_numpy()
 
         result[prn] = {
-            'horario_sec': orb_t,
-            'fx'         : PchipInterpolator(orb_t, orb_x),
-            'fy'         : PchipInterpolator(orb_t, orb_y),
-            'fz'         : PchipInterpolator(orb_t, orb_z),
+            # 'horario_sec': orb_t,
+            'fx_km'         : PchipInterpolator(orb_t, orb_x),
+            'fy_km'         : PchipInterpolator(orb_t, orb_y),
+            'fz_km'         : PchipInterpolator(orb_t, orb_z),
         }
 
     return result
+
+# def satellite_xyz(df_rinex, df_orbit):
+#     """
+#     Add satellite ECEF coordinates (x_km, y_km, z_km) to the GNSS observation DataFrame
+#     using interpolated SP3 orbit data.
+
+#     Parameters:
+#         df_rinex (pd.DataFrame): GNSS observation DataFrame with 'prn' and 'time_j' columns.
+#         df_orbit (pd.DataFrame): SP3 orbit DataFrame used for interpolation.
+
+#     Returns:
+#         pd.DataFrame: Updated DataFrame with satellite coordinates.
+#     """
+#     prns = sorted(df_rinex['prn'].unique())
+#     coord_cols = ['x_km', 'y_km', 'z_km']
+#     df_rinex[coord_cols] = None  # Initialize columns
+#     dropped = []
+
+#     for prn in prns:
+#         idxs = df_rinex['prn'] == prn
+#         try:
+#             Inter_prn, keep_info = data_interpol(df_orbit, prn)
+#             if isinstance(Inter_prn, str):
+#                 # print(f"[SKIP] {prn}: {keep_info}")
+#                 dropped.append(prn)
+#                 df_rinex = df_rinex[~idxs]
+#                 continue
+
+#             time_j = df_rinex.loc[idxs, 'time_j']
+#             prn_xyz = coord_cartesian(Inter_prn, time_j)
+
+#             df_rinex.loc[idxs, coord_cols] = prn_xyz.values
+
+#         except Exception as e:
+#             print(f"[ERROR] {prn}: {e}")
+#             dropped.append(prn)
+#             df_rinex = df_rinex[~idxs]
+
+#     # if dropped:
+#     #     print(f"[INFO] Dropped PRNs: {dropped} (total: {len(dropped)})")
+
+#     return df_rinex, dropped
+
+def satellite_xyz_v2(df_tec_dtec, dic_orbit):
+    """
+    Add satellite ECEF coordinates (x_km, y_km, z_km) to the GNSS observation DataFrame
+    using interpolated SP3 orbit data.
+
+    Parameters:
+        df_rinex (pd.DataFrame): GNSS observation DataFrame with 'prn' and 'time_j' columns.
+        df_orbit (pd.DataFrame): SP3 orbit DataFrame used for interpolation.
+
+    Returns:
+        pd.DataFrame: Updated DataFrame with satellite coordinates.
+    """
+    prns_dtec = np.array((df_tec_dtec['prn'].unique()))
+    coord_cols = ['x_km', 'y_km', 'z_km']
+    df_tec_dtec[coord_cols] = None  # Initialize columns
+
+    prns_orbits = np.array(list(dic_orbit))
+    common_prns = np.intersect1d(prns_dtec, prns_orbits)
+    
+    dropped = []
+
+    for prn in common_prns:
+        
+        idxs = df_tec_dtec['prn'] == prn
+        
+        try:
+            
+            dic_orbit[prn]
+            
+            Inter_prn, keep_info = data_interpol(df_orbit, prn)
+
+            if isinstance(Inter_prn, str):
+
+                dropped.append(prn)
+                df_rinex = df_rinex[~idxs]
+
+                continue
+
+            time_j = df_rinex.loc[idxs, 'time_j']
+            prn_xyz = coord_cartesian(Inter_prn, time_j)
+
+            df_rinex.loc[idxs, coord_cols] = prn_xyz.values
+
+        except Exception as e:
+            print(f"[ERROR] {prn}: {e}")
+            dropped.append(prn)
+            df_rinex = df_rinex[~idxs]
+
+    # if dropped:
+    #     print(f"[INFO] Dropped PRNs: {dropped} (total: {len(dropped)})")
+
+    return df_rinex, dropped
 
 # ---------------------------------------------------------------------
 # GEOMETRY: IPP (THIN-SHELL)
