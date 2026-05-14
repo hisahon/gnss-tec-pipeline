@@ -30,19 +30,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.signal import butter, sosfilt, sosfiltfilt, hilbert
 
-from shared.config import dtec_pc_dir
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
+
+from shared.config import dtec_pc_dir, ephemeris_parquet_dir
 from shared.prn_store import load_tec_with_neighbors_v2, get_station_names
+from shared.geometry import interpolate_orbits, satellite_xyz_v2
 
 
-# ---------------------------------------------------------------------------
-# Pipeline parameters
-# ---------------------------------------------------------------------------
-# SAMPLING_RATE_HZ  = 4 / 60          # 4 samples per minute (15 s sampling)
-DETREND_WIN_MIN  = 30
-DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
-BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
-BANDPASS_ORDER   = 4
-SPIKE_DIFF_LIMIT = 5.0             # |diff(TEC)| threshold for spike removal
+
 
 
 # ---------------------------------------------------------------------------
@@ -590,42 +586,34 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
                 df_final[[dt_col, 'prn', dtec_key]].to_parquet(tec_folder / f'{station}_dtec_{year}{doy}.parquet', index=False)
             else:
                 print(f"Aviso: DataFrame vazio para o dia {year}-{doy}. Arquivo Parquet não foi gerado.")
-    # else:
-        # Se nenhum dado válido sobrou, retorna um df vazio com a nova estrutura de colunas
-        # return pd.DataFrame(columns=list(df.columns) + ['dtec'])
-
-
-# def plot_tec_por_receptor_de_pasta(
-#     folder: Path | str,
-#     pattern: str = "*.parquet",
-#     show: bool = False,
-# ) -> None:
-#     """Apply `plot_tec_por_receptor_de_arquivo` to every parquet in `folder`.
-
-#     Useful when there is one parquet per PRN sitting in the same directory.
-#     Errors on individual files are reported and do not stop the loop.
-#     """
-#     folder = Path(folder)
-#     for path in sorted(folder.glob(pattern)):
-#         try:
-#             plot_tec_por_receptor_de_arquivo(file=path, show=show)
-#         except Exception as exc:
-#             print(f"[ERROR] {path}: {exc}")
 
 
 # ---------------------------------------------------------------------------
 # Script entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    
     year, doy = 2025, 317
+    
+    # ---------------------------------------------------------------------------
+    # Pipeline parameters
+    # ---------------------------------------------------------------------------
+    # SAMPLING_RATE_HZ  = 4 / 60          # 4 samples per minute (15 s sampling)
+    DETREND_WIN_MIN  = 30
+    DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
+    BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
+    BANDPASS_ORDER   = 4
+    SPIKE_DIFF_LIMIT = 5.0             # |diff(TEC)| threshold for spike removal
+    TO_PARQUET = True
+    
+    
     dt_in = datetime.strptime(f"{year}-{doy}", "%Y-%j")
 
-    # folder_base = Path(cv.folder_db, 'ionosphere', 'tec_pc', f'{year}', f'{doy}')
-    # folder_base = cfg.tec_pc_dir(year, doy)
-    # files = read_files(folder_base, 'parquet')
     stations = get_station_names(year, doy)
+    dic_ephemeris = interpolate_orbits(year, doy)
 
     for station in stations:
         df_station_tec = load_tec_with_neighbors_v2(year, doy, station)
         df_station_dtec = aplicar_filtros_dtec(df_station_tec, station, plot_figs=False)
-        # df_station_dtec.to_parquet(dtec_pc_dir(year, doy))
+        df_station_dtec = satellite_xyz_v2(df_station_dtec, dic_ephemeris)
+        df_station_dtec.to_parquet(dtec_pc_dir(year, doy))

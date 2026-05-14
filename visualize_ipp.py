@@ -196,23 +196,23 @@ def parse_arguments():
 #         satellite_xyz_v2(dtec_file, dic_ephemeris, to_parquet=True)
         
         
-def main(year: int, doy: int, to_parquet: bool) -> None:
-    """Core workflow that can be called from CLI or IDE."""
+# def insert_satellite_coordninates(year: int, doy: int, to_parquet: bool) -> None:
+#     """Core workflow that can be called from CLI or IDE."""
     
-    # Load ephemeris and pre-interpolate orbits
-    file_ephemeris = cfg.ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
-    dic_ephemeris = interpolate_orbits(pd.read_parquet(file_ephemeris))
+#     # Load ephemeris and pre-interpolate orbits
+#     file_ephemeris = cfg.ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
+#     dic_ephemeris = interpolate_orbits(pd.read_parquet(file_ephemeris))
 
-    # Collect dtec files
-    folder_dtec = cfg.dtec_pc_dir(year, doy)
-    if not folder_dtec.exists():
-        return
-    dtec_files = list(folder_dtec.rglob("*.parquet"))
+#     # Collect dtec files
+#     folder_dtec = cfg.dtec_pc_dir(year, doy)
+#     if not folder_dtec.exists():
+#         return
+#     dtec_files = list(folder_dtec.rglob("*.parquet"))
 
-    # Process files in parallel (max 4 workers to avoid HD overload)
-    process = partial(satellite_xyz_v2, dic_ephemeris=dic_ephemeris, to_parquet=to_parquet)
-    with ProcessPoolExecutor(max_workers=3) as executor:
-        executor.map(process, dtec_files)
+#     # Process files in parallel (max 4 workers to avoid HD overload)
+#     process = partial(satellite_xyz_v2, dic_ephemeris=dic_ephemeris, to_parquet=to_parquet)
+#     with ProcessPoolExecutor(max_workers=3) as executor:
+#         executor.map(process, dtec_files)
 
     
 

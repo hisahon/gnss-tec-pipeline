@@ -9,11 +9,13 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import PchipInterpolator
 from datetime import datetime
-from typing import Optional
+# from typing import Optional
 
+
+from shared.config import ephemeris_parquet_dir
 GNSS_EPOCH = datetime(1980, 1, 6, 0, 0, 0)
 
-def interpolate_orbits(df_orb: pd.DataFrame, prns: Optional[np.ndarray] = None) -> dict:
+def interpolate_orbits(year, doy) -> dict:
     """
     Cria interpoladores PCHIP de coordenadas para cada PRN.
 
@@ -25,8 +27,10 @@ def interpolate_orbits(df_orb: pd.DataFrame, prns: Optional[np.ndarray] = None) 
         dict → {prn: {'horario_sec': [...], 'fx': interpolador, 'fy': interpolador, 'fz': interpolador}}
     """
     
-    if prns is None:
-        prns = df_orb['prn'].unique()
+    file_ephemeris = ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
+    df_orb = pd.read_parquet(file_ephemeris)
+        
+    prns = df_orb['prn'].unique()
         
     result = {}
 
@@ -91,9 +95,9 @@ def interpolate_orbits(df_orb: pd.DataFrame, prns: Optional[np.ndarray] = None) 
 
 #     return df_rinex, dropped
 
-def satellite_xyz_v2(dtec_file, orbit_dict, to_parquet):
+def satellite_xyz_v2(df_tec_dtec, orbit_dict):
     
-    df_tec_dtec = pd.read_parquet(dtec_file)
+    # df_tec_dtec = pd.read_parquet(dtec_file)
     # Coordinate columns to be filled
     coord_cols = ['x_km', 'y_km', 'z_km']
     df_tec_dtec[coord_cols] = np.nan
@@ -128,10 +132,6 @@ def satellite_xyz_v2(dtec_file, orbit_dict, to_parquet):
     # Drop rows with missing coordinates (PRNs absent from orbit_dict)
     df_tec_dtec.dropna(subset=coord_cols, inplace=True)
     
-    if to_parquet:
-        df_tec_dtec.to_parquet(dtec_file)
-        return
-
     return df_tec_dtec
 
 # ---------------------------------------------------------------------
