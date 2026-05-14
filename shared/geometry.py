@@ -113,7 +113,7 @@ def satellite_xyz_v2(df_tec_dtec, orbit_dict):
         prn_slice = df_tec_dtec[mask]
 
         # Convert timestamps to seconds since GNSS epoch
-        times = (prn_slice["timestamp"] - GNSS_EPOCH).dt.total_seconds().to_numpy()
+        times = (prn_slice["horario"] - GNSS_EPOCH).dt.total_seconds().to_numpy()
 
         try:
             # Interpolate satellite coordinates using precomputed spline functions

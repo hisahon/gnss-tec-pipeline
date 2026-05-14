@@ -581,11 +581,14 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
             print(f"Finalizado a estação: {station}")
             
             # Salva o arquivo apenas se não estiver vazio
-            if not df_final.empty: # ou "if qtd_linhas > 0:"
-                tec_folder = dtec_pc_dir(year, doy)
-                df_final[[dt_col, 'prn', dtec_key]].to_parquet(tec_folder / f'{station}_dtec_{year}{doy}.parquet', index=False)
-            else:
-                print(f"Aviso: DataFrame vazio para o dia {year}-{doy}. Arquivo Parquet não foi gerado.")
+            # if not df_final.empty: # ou "if qtd_linhas > 0:"
+                # tec_folder = dtec_pc_dir(year, doy)
+                # df_final[[dt_col, 'prn', dtec_key]].to_parquet(tec_folder / f'{station}_dtec_{year}{doy}.parquet', index=False)
+            return df_final[[dt_col, 'prn', dtec_key]]
+            # else:
+            #     print(f"Aviso: DataFrame vazio para o dia {year}-{doy}. Arquivo Parquet não foi gerado.")
+    else:
+        return pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +596,7 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     
-    year, doy = 2025, 317
+    year, doy = 2025, 316
     
     # ---------------------------------------------------------------------------
     # Pipeline parameters
@@ -613,7 +616,14 @@ if __name__ == "__main__":
     dic_ephemeris = interpolate_orbits(year, doy)
 
     for station in stations:
+        out_file = dtec_pc_dir(year, doy) / f'{station}_dtec_{year}{doy:03d}.parquet'
+        if out_file.exists():
+            print(f'Ja gravado em disco: {station}')
+            continue
+
         df_station_tec = load_tec_with_neighbors_v2(year, doy, station)
         df_station_dtec = aplicar_filtros_dtec(df_station_tec, station, plot_figs=False)
-        df_station_dtec = satellite_xyz_v2(df_station_dtec, dic_ephemeris)
-        df_station_dtec.to_parquet(dtec_pc_dir(year, doy))
+        if not df_station_dtec.empty:
+            df_station_dtec = satellite_xyz_v2(df_station_dtec, dic_ephemeris)
+        if not df_station_dtec.empty:
+            df_station_dtec.to_parquet(dtec_pc_dir(year, doy) / f'{station}_dtec_{year}{doy}.parquet', index=False)
