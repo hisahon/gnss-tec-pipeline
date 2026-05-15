@@ -295,7 +295,8 @@ def ipp_calc2(satellite_coordinates, station_coordinates, H_km=350, RE_km=6371.0
     lon_pp = (lon + np.arctan2(num, den) + np.pi) % (2.0*np.pi) - np.pi
 
     # Mask below-horizon points (single pass)
-    bad    = El <= 0.0
+    # bad    = El <= 0.0
+    bad    = El <= np.radians(20.0)
     lat_pp = np.where(bad, np.nan, lat_pp)
     lon_pp = np.where(bad, np.nan, lon_pp)
 

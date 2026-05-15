@@ -182,23 +182,32 @@ def main(root_dir, year, doy, height=350.0, save_fig=False):
     # #Reading the satellite positons 5min cadency
     df_stations = pd.read_parquet(station_positions_dir() / f"SP_{year}-{doy:03d}.parquet").set_index('name')
 
-    common_stations = list(set(df_stations.index) & set(dtec_fmap.keys()))
+    common_stations = sorted(set(df_stations.index) & set(dtec_fmap.keys()))
     
     date_title = f"{year}-{doy}"
     for station in common_stations:
         station_coords = df_stations.loc[station]
-        df_dtec = pd.read_parquet(dtec_fmap[station])
+        df_dtec = pd.read_parquet(dtec_fmap[station]).set_index('horario')
     
         # Single vectorized IPP call across all PRNs
         x, y, z = df_dtec[['x_km', 'y_km', 'z_km']].to_numpy().T
-        df_dtec['lts'], df_dtec['lns'], df_dtec['els'] = ipp_calc2(
-            (x, y, z), station_coords
-        )
-        df_dtec.drop(columns=['x_km', 'y_km', 'z_km'], inplace=True)
         
+        try:
+            df_dtec['lts'], df_dtec['lns'], df_dtec['els'] = ipp_calc2(
+                                                             (x, y, z), station_coords
+                                                             )
+            df_dtec.drop(columns=['x_km', 'y_km', 'z_km'], inplace=True)
+            df_dtec.dropna(subset=['lts', 'lns', 'els'], inplace=True)
+        except:
+            print(f"Error IPP: {station}")
+            continue
         
-        
-        plot_ipp_trajectory2(df_dtec, station, date_title, trh=1.)
+       
+        try:
+            plot_ipp_trajectory2(df_dtec, station, date_title, trh=1.)
+            # print(f"Sucess Ploting: {station}")
+        except:
+            print(f"Error Ploting: {station}")
         
         
         
@@ -239,7 +248,7 @@ if __name__ == "__main__":
         main(
             root_dir="tec_pc/",
             year=2025,
-            doy=316,
+            doy=317,
             height=350.0,
             save_fig=True 
         )

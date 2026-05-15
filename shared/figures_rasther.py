@@ -166,46 +166,52 @@ def plot_ipp_trajectory2(
     cmap        : colormap for dTEC scatter
     trh         : symmetric dTEC color limits [-trh, +trh]
     """
-    df   = df[df["els"] > 0].copy()
-    t    = df.index
-    lts  = df["lts"].to_numpy()
-    lns  = df["lns"].to_numpy()
-    
-    dtec_col = next(col for col in df.columns if col.startswith("dtec"))
-    dtec = df[dtec_col].to_numpy()
+    df      = df[df["els"] > 0].copy()
+    t       = df.index
+    t_hours = (t - t[0]).total_seconds() / 3600   # datetime → decimal hours
+    lts     = df["lts"].to_numpy()
+    lns     = df["lns"].to_numpy()
 
-    mask_lat = ~np.isnan(lts)  & ~np.isnan(dtec)
-    mask_lon = ~np.isnan(lns)  & ~np.isnan(dtec)
+    dtec_col = next(col for col in df.columns if col.startswith("dtec"))
+    dtec     = df[dtec_col].to_numpy()
+    running_average = dtec_col.split('_')[1]
+
+    mask_lat = ~np.isnan(lts) & ~np.isnan(dtec)
+    mask_lon = ~np.isnan(lns) & ~np.isnan(dtec)
 
     fig, axes = plt.subplots(2, 1, figsize=(10, 6), constrained_layout=True, sharex=True)
 
     # Panel 1 — Time x Lat
     sc1 = axes[0].scatter(
-        t[mask_lat], lts[mask_lat], c=dtec[mask_lat],
+        t_hours[mask_lat], lts[mask_lat], c=dtec[mask_lat],
         s=1, alpha=0.8, marker="|", cmap=cmap, vmin=-trh, vmax=trh
     )
-    axes[0].set_title(f"{date_string} [{station}]")
+    axes[0].set_title(f"dtec [{date_string}] [{station}] (avg. window = {running_average})")
     axes[0].set_ylabel("Latitude (°)")
     axes[0].grid(True, linestyle=":", color="gray", alpha=0.7)
     plt.colorbar(sc1, ax=axes[0]).set_label("dTEC (TECU)")
 
     # Panel 2 — Time x Lon
     sc2 = axes[1].scatter(
-        t[mask_lon], lns[mask_lon], c=dtec[mask_lon],
+        t_hours[mask_lon], lns[mask_lon], c=dtec[mask_lon],
         s=1, alpha=0.8, marker="|", cmap=cmap, vmin=-trh, vmax=trh
     )
     axes[1].set_ylabel("Longitude (°)")
     axes[1].set_xlabel(f"[{date_string}] Time (UTC)")
     axes[1].grid(True, linestyle=":", color="gray", alpha=0.7)
-    axes[1].set_xlim(t.min(), t.max())
-    axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    axes[1].set_xlim(t_hours.min(), t_hours.max())
+    axes[1].set_xlim(-0.5, 24.5)
+    axes[1].xaxis.set_major_locator(plt.MultipleLocator(3))
+    # axes[1].xaxis.set_major_locator(plt.MultipleLocator(1))   # tick a cada 1h
+    # axes[1].xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x):02d}:00"))
+
     plt.colorbar(sc2, ax=axes[1]).set_label("dTEC (TECU)")
 
     # Save
     Path(output_dir).mkdir(exist_ok=True, parents=True)
     plt.savefig(Path(output_dir) / f"{station}_{date_string}.png", dpi=150)
     plt.close(fig)
-    print(f"Saved: {station}")
+    # print(f"Saved: {station}")
 
 
 # ---------------------------------------------------------------------
