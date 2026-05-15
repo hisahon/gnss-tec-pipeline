@@ -19,6 +19,7 @@ from shared.geometry import ipp_geometric
 from shared.prn_store import get_station_names, get_station_paths
 from shared.config import station_positions_dir
 from shared.geometry import ipp_calc2
+from shared.figures_rasther import plot_ipp_trajectory2
 # from shared.sp3 import satellite_xyz_v2
 
 # ==========================================
@@ -183,7 +184,7 @@ def main(root_dir, year, doy, height=350.0, save_fig=False):
 
     common_stations = list(set(df_stations.index) & set(dtec_fmap.keys()))
     
-
+    date_title = f"{year}-{doy}"
     for station in common_stations:
         station_coords = df_stations.loc[station]
         df_dtec = pd.read_parquet(dtec_fmap[station])
@@ -194,6 +195,10 @@ def main(root_dir, year, doy, height=350.0, save_fig=False):
             (x, y, z), station_coords
         )
         df_dtec.drop(columns=['x_km', 'y_km', 'z_km'], inplace=True)
+        
+        
+        
+        plot_ipp_trajectory2(df_dtec, station, date_title, trh=1.)
         
         
         

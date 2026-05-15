@@ -7,10 +7,15 @@ Created on Mon Apr 27 18:07:41 2026
 """
 
 # --- Visualization (matplotlib) -------------------------------------
-import matplotlib.pyplot as plt   # Main plotting API
+# --- CRITICAL SETTING TO PREVENT PLOT DISPLAY ---
+import matplotlib
+matplotlib.use('Agg')  # Set the non-interactive backend BEFORE importing pyplot
+import matplotlib.pyplot as plt
+# ------------------------------------------------
 import matplotlib.dates as mdates # Time-axis formatting (HH:MM, etc.)
 
 import numpy as np
+import pandas as pd
 from pathlib import Path          # OS-independent path manipulation
 
 # ---------------------------------------------------------------------
@@ -139,6 +144,68 @@ def plot_ipp_trajectory(
     plt.savefig(save_path, dpi=300)
     plt.close(fig)
     print(f"Saved: {prn}")
+    
+def plot_ipp_trajectory2(
+    df: pd.DataFrame,
+    station: str,
+    date_string: str,
+    output_dir: str = "imagens",
+    cmap: str = "turbo",
+    trh: float = 0.5,
+):
+    """
+    Two-panel figure (Time x Lat, Time x Lon) for all PRNs of one station.
+    Expects a DataFrame with datetime index and columns: prn, lts, lns, els, dtec.
+
+    Parameters
+    ----------
+    df          : DataFrame with datetime index + [prn, lts, lns, els, dtec]
+    station     : station name, used in the output filename
+    date_string : label for the plot title / filename (e.g. "2024-001")
+    output_dir  : folder to save the figure
+    cmap        : colormap for dTEC scatter
+    trh         : symmetric dTEC color limits [-trh, +trh]
+    """
+    df   = df[df["els"] > 0].copy()
+    t    = df.index
+    lts  = df["lts"].to_numpy()
+    lns  = df["lns"].to_numpy()
+    
+    dtec_col = next(col for col in df.columns if col.startswith("dtec"))
+    dtec = df[dtec_col].to_numpy()
+
+    mask_lat = ~np.isnan(lts)  & ~np.isnan(dtec)
+    mask_lon = ~np.isnan(lns)  & ~np.isnan(dtec)
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 6), constrained_layout=True, sharex=True)
+
+    # Panel 1 — Time x Lat
+    sc1 = axes[0].scatter(
+        t[mask_lat], lts[mask_lat], c=dtec[mask_lat],
+        s=1, alpha=0.8, marker="|", cmap=cmap, vmin=-trh, vmax=trh
+    )
+    axes[0].set_title(f"{date_string} [{station}]")
+    axes[0].set_ylabel("Latitude (°)")
+    axes[0].grid(True, linestyle=":", color="gray", alpha=0.7)
+    plt.colorbar(sc1, ax=axes[0]).set_label("dTEC (TECU)")
+
+    # Panel 2 — Time x Lon
+    sc2 = axes[1].scatter(
+        t[mask_lon], lns[mask_lon], c=dtec[mask_lon],
+        s=1, alpha=0.8, marker="|", cmap=cmap, vmin=-trh, vmax=trh
+    )
+    axes[1].set_ylabel("Longitude (°)")
+    axes[1].set_xlabel(f"[{date_string}] Time (UTC)")
+    axes[1].grid(True, linestyle=":", color="gray", alpha=0.7)
+    axes[1].set_xlim(t.min(), t.max())
+    axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    plt.colorbar(sc2, ax=axes[1]).set_label("dTEC (TECU)")
+
+    # Save
+    Path(output_dir).mkdir(exist_ok=True, parents=True)
+    plt.savefig(Path(output_dir) / f"{station}_{date_string}.png", dpi=150)
+    plt.close(fig)
+    print(f"Saved: {station}")
 
 
 # ---------------------------------------------------------------------
