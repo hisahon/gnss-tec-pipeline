@@ -244,6 +244,64 @@ def ipp_calc(prn_coordinates, station_coordinates, H_km, RE_km=6371.0):
     return np.degrees(lat_pp), np.degrees(lon_pp), np.degrees(El)
 
 
+def ipp_calc2(satellite_coordinates, station_coordinates, H_km=350, RE_km=6371.0):
+    """
+    Ionospheric Pierce Point (IPP) via thin-shell trigonometric approach.
+
+    """
+    # Unpack
+    x_sta, y_sta, z_sta, lon_sta, lat_sta, h_sta = station_coordinates
+    x_sat, y_sat, z_sat = satellite_coordinates
+    
+    # Satellite - station ECEF delta
+    dx = x_sat - x_sta
+    dy = y_sat - y_sta
+    dz = z_sat - z_sta
+
+    # Station lat/lon in radians
+    lat = np.radians(lat_sta)
+    lon = np.radians(lon_sta)
+
+    sphi, cphi = np.sin(lat), np.cos(lat)
+    slon, clon = np.sin(lon), np.cos(lon)
+
+    # ECEF -> ENU rotation
+    e = -slon*dx + clon*dy
+    n = -clon*sphi*dx - slon*sphi*dy + cphi*dz
+    u =  clon*cphi*dx + slon*cphi*dy + sphi*dz
+
+    # Elevation and azimuth
+    hor  = np.hypot(e, n)
+    dist = np.hypot(u, hor)
+    cosE = hor / dist               # cos(El) without extra trig call
+    El   = np.arctan2(u, hor)       # [-pi/2, pi/2]
+    Az   = np.arctan2(e, n)         # [-pi, pi]
+    cosAz = np.cos(Az)              # precomputed, used twice below
+
+    # Thin-shell: chi = zenith angle at IPP, psi = geocentric arc station->IPP
+    schi = np.clip((RE_km / (RE_km + H_km)) * cosE, -1.0, 1.0)
+    chi  = np.arcsin(schi)
+    psi  = (np.pi / 2.0) - El - chi
+
+    spsi, cpsi = np.sin(psi), np.cos(psi)
+
+    # IPP latitude (spherical navigation formula)
+    sin_lat_pp = np.clip(sphi*cpsi + cphi*spsi*cosAz, -1.0, 1.0)
+    lat_pp     = np.arcsin(sin_lat_pp)
+
+    # IPP longitude
+    num    = spsi * np.sin(Az)
+    den    = cphi*cpsi - sphi*spsi*cosAz
+    lon_pp = (lon + np.arctan2(num, den) + np.pi) % (2.0*np.pi) - np.pi
+
+    # Mask below-horizon points (single pass)
+    bad    = El <= 0.0
+    lat_pp = np.where(bad, np.nan, lat_pp)
+    lon_pp = np.where(bad, np.nan, lon_pp)
+
+    return np.degrees(lat_pp), np.degrees(lon_pp), np.degrees(El)
+
+
 def ipp_geometric(prn_coordinates, station_coordinates, H_km, RE_km=6371.0):
     """
     Computes the Ionospheric Pierce Point (IPP) on a thin spherical

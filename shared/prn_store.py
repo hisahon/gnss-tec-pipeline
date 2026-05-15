@@ -203,6 +203,35 @@ def get_station_names(year: int, doy: int, extension: str = "parquet") -> list[s
     # Retorna a lista de estações ordenada alfabeticamente
     return sorted(list(stations))
 
+# from pathlib import Path
+
+def get_station_paths(year: int, doy: int, ext: str = "parquet") -> dict[str, Path]:
+    """
+    Recursively searches a directory and returns a mapping dictionary.
+    
+    Key: Station name (first 4 characters of the filename).
+    Value: Full file path (Path object).
+    """
+    target_dir = dtec_pc_dir(year, doy)
+    
+    # Standardize the extension to include the dot and be lowercase
+    ext = ext if ext.startswith('.') else f'.{ext}'
+    ext = ext.lower()
+
+    # Safely return an empty dict if the directory doesn't exist
+    if not target_dir.exists():
+        print(f"Warning: Directory not found - {target_dir}")
+        return {}
+
+    # Dictionary comprehension extracting the 4-char key
+    file_map = {
+        p.name[:4]: p 
+        for p in target_dir.rglob('*') 
+        if p.is_file() and p.suffix.lower() == ext
+    }
+    
+    return file_map
+
 
 
 def load_tec_with_neighbors_v2(

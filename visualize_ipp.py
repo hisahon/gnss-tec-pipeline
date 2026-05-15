@@ -16,9 +16,9 @@ from scipy.interpolate import interp1d
 
 # Import custom modules
 from shared.geometry import ipp_geometric
-# from shared.prn_store import load_all_stations_dtec
-# import shared.config as cfg
-# from shared.geometry import interpolate_orbits, satellite_xyz_v2
+from shared.prn_store import get_station_names, get_station_paths
+from shared.config import station_positions_dir
+from shared.geometry import ipp_calc2
 # from shared.sp3 import satellite_xyz_v2
 
 # ==========================================
@@ -172,48 +172,37 @@ def parse_arguments():
     return parser.parse_args()
 
 
-# def main(root_dir, year, doy, height=350.0, save_fig=False):
-#     """Core workflow that can be called from CLI or IDE."""
+def main(root_dir, year, doy, height=350.0, save_fig=False):
+    """Core workflow that can be called from CLI or IDE."""
 
-#     #Read all dtec files
-#     dtec_files=[]
-#     folder_dtec = cfg.dtec_pc_dir(year, doy) 
-#     if folder_dtec.exists():
-#         dtec_files.extend(folder_dtec.rglob("*.parquet"))
+    #Reading a dictionary of all dtec files
+    dtec_fmap = get_station_paths(year, doy)
     
-#     #Reading the satellite positons 5min cadency
-#     file_ephemeris = cfg.ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
-#     df_ephemeris = pd.read_parquet(file_ephemeris)
+    # #Reading the satellite positons 5min cadency
+    df_stations = pd.read_parquet(station_positions_dir() / f"SP_{year}-{doy:03d}.parquet").set_index('name')
+
+    common_stations = list(set(df_stations.index) & set(dtec_fmap.keys()))
     
-#     dic_ephemeris = interpolate_orbits(df_ephemeris)
+
+    for station in common_stations:
+        station_coords = df_stations.loc[station]
+        df_dtec = pd.read_parquet(dtec_fmap[station])
     
-    
-    
-    
-#     #Doing the processing file by file
-#     for dtec_file in dtec_files:
-       
-#         satellite_xyz_v2(dtec_file, dic_ephemeris, to_parquet=True)
+        # Single vectorized IPP call across all PRNs
+        x, y, z = df_dtec[['x_km', 'y_km', 'z_km']].to_numpy().T
+        df_dtec['lts'], df_dtec['lns'], df_dtec['els'] = ipp_calc2(
+            (x, y, z), station_coords
+        )
+        df_dtec.drop(columns=['x_km', 'y_km', 'z_km'], inplace=True)
         
         
-# def insert_satellite_coordninates(year: int, doy: int, to_parquet: bool) -> None:
-#     """Core workflow that can be called from CLI or IDE."""
+        
+        
+        
+        
     
-#     # Load ephemeris and pre-interpolate orbits
-#     file_ephemeris = cfg.ephemeris_parquet_dir(year, doy) / f"ORBIT_{year}{doy:03d}.parquet"
-#     dic_ephemeris = interpolate_orbits(pd.read_parquet(file_ephemeris))
 
-#     # Collect dtec files
-#     folder_dtec = cfg.dtec_pc_dir(year, doy)
-#     if not folder_dtec.exists():
-#         return
-#     dtec_files = list(folder_dtec.rglob("*.parquet"))
-
-#     # Process files in parallel (max 4 workers to avoid HD overload)
-#     process = partial(satellite_xyz_v2, dic_ephemeris=dic_ephemeris, to_parquet=to_parquet)
-#     with ProcessPoolExecutor(max_workers=3) as executor:
-#         executor.map(process, dtec_files)
-
+   
     
 
 
