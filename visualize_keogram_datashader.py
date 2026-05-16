@@ -19,9 +19,10 @@ import dask.dataframe as dd
 import datashader as ds
 import datashader.transfer_functions as tf
 import xarray as xr
+import colorcet as cc
 
 # Import custom modules
-from shared.config import dtec_ipp_dir
+from shared.config import dtec_ipp_dir, dtec_keogram_dir
 
 
 # ==========================================
@@ -103,7 +104,7 @@ def save_grid(agg, nc_path: Path):
     """
     nc_path = Path(nc_path)
     nc_path.parent.mkdir(parents=True, exist_ok=True)
-    agg.to_netcdf(nc_path)
+    agg.to_netcdf(str(nc_path))
     print(f"Grid saved: {nc_path}")
 
 
@@ -127,9 +128,10 @@ def plot_keogram(nc_path: Path, trh: float = 0.5, cmap: str = "RdBu_r"):
     """
     nc_path  = Path(nc_path)
     agg      = xr.open_dataarray(nc_path)
-    img      = tf.shade(agg, cmap=cmap, span=[-trh, trh], how="linear")
+    img = tf.shade(agg, cmap=cc.coolwarm, span=[-trh, trh], how="linear")
     img_path = nc_path.with_suffix("")   # same name, no extension (datashader adds .png)
-    tf.export_image(img, str(img_path))
+    # img.to_pil().save(str(img_path) + ".png")
+    img.to_pil().convert("RGB").save(str(img_path) + ".png")
     print(f"Image saved: {img_path}.png")
 
 
@@ -160,6 +162,7 @@ def main_build(year, doy, resolution="low"):
     """
     plot_height   = 1200 if resolution == "low" else 2400
     ipp_folder    = dtec_ipp_dir(year, doy)
+    keograms_folder = dtec_keogram_dir(year, doy)
     parquet_files = sorted(Path(ipp_folder).glob(f"*_dtecIPP_{year}{doy}.parquet"))
 
     if not parquet_files:
@@ -168,7 +171,7 @@ def main_build(year, doy, resolution="low"):
 
     print(f"Found {len(parquet_files)} station files. Aggregating...")
     agg     = build_keogram_grid(parquet_files, plot_width=5760, plot_height=plot_height)
-    nc_path = Path(ipp_folder) / f"keogram_{year}_{doy:03d}_{resolution}.nc"
+    nc_path = keograms_folder / f"keogram_{year}_{doy:03d}_{resolution}.nc"
     save_grid(agg, nc_path)
 
 
@@ -177,12 +180,22 @@ def main_plot(year, doy, resolution="low", trh=0.5, cmap="RdBu_r"):
     Stage 2 — load saved grid and export PNG.
     Can be called many times with different trh/cmap without re-aggregating.
     """
-    ipp_folder = dtec_ipp_dir(year, doy)
-    nc_path    = Path(ipp_folder) / f"keogram_{year}_{doy:03d}_{resolution}.nc"
+    keogram_folder = dtec_keogram_dir(year, doy)
+    nc_path    = keogram_folder / f"keogram_{year}_{doy:03d}_{resolution}.nc"
 
     if not nc_path.exists():
         print(f"Grid not found: {nc_path}. Run main_build() first.")
         return
+    
+    # # --- diagnóstico ---
+    # agg = xr.open_dataarray(nc_path)
+    # # import numpy as np
+    # print(f"min:  {float(agg.min()):.4f}")
+    # print(f"max:  {float(agg.max()):.4f}")
+    # print(f"mean: {float(agg.mean()):.4f}")
+    # print(f"NaN pixels: {int(np.isnan(agg).sum())}")
+    # print(f"Total pixels: {agg.size}")
+    # # -------------------
 
     plot_keogram(nc_path, trh=trh, cmap=cmap)
 
