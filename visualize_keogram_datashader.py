@@ -205,7 +205,7 @@ def main_build(year, doy, resolution="low"):
     (one for latitude, one for longitude).
     """
     # Resolution in degrees per pixel
-    deg_per_px      = 0.1 if resolution == "low" else 0.03
+    deg_per_px      = 0.1 if resolution == "low" else 0.05
     plot_height_lat = int((LAT_RANGE[1] - LAT_RANGE[0]) / deg_per_px)
     plot_height_lon = int((LON_RANGE[1] - LON_RANGE[0]) / deg_per_px)
 
@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2025, 316
+        year, doy = 2025, 317
         resolution = 'high'
         # Stage 1 — run once
         main_build(year=year, doy=doy, resolution=resolution)
@@ -283,7 +283,7 @@ if __name__ == "__main__":
         #           use_matplotlib=False)
 
         # matplotlib version (with axes, colorbar, title)
-        main_plot(year=year, doy=doy, resolution=resolution, trh=1.0,
+        main_plot(year=year, doy=doy, resolution=resolution, trh=0.3,
                   use_matplotlib=True)
 
     else:
