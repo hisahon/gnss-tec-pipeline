@@ -232,10 +232,10 @@ if __name__ == "__main__":
         print("Running in IDE Manual Mode...")
         main(
             root_dir="tec_pc/",
-            year=2025,
-            doy=316,
+            year=2021,
+            doy=296,
             height=350.0,
-            save_fig=True 
+            save_fig=False 
         )
     else:
         print("Running in CLI Mode...")

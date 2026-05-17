@@ -27,9 +27,7 @@ import matplotlib.pyplot as plt
 from shared.config import dtec_ipp_dir, dtec_keogram_dir
 
 
-# Default ranges per axis ----------------------------------------------------
-LAT_RANGE = (-60.0,  60.0)    # 120° span
-LON_RANGE = (-120.0, -20.0)   # 100° span (Americas)
+
 
 
 # ==========================================
@@ -42,52 +40,29 @@ def build_keogram_grid(
     plot_width: int = 5760,
     plot_height: int = 1200,
     dtec_col: str = "dtec_30min",
-):
-    """
-    Aggregates IPP points from many parquets into a single (Time × y_col) grid.
-
-    Parameters
-    ----------
-    parquet_files : list of Path
-        Per-station IPP parquet files.
-    y_col : str
-        Column to put on the Y axis ('lts' for latitude, 'lns' for longitude).
-    y_range : (float, float)
-        Coordinate range covered by the canvas on the Y axis.
-    plot_width : int
-        Pixels along the time axis (default 5760 → 1 px per 15s over 24h).
-    plot_height : int
-        Pixels along the Y axis.
-    dtec_col : str
-        Column name for dTEC values.
-
-    Returns
-    -------
-    xarray.DataArray
-        Mean dTEC per pixel (NaN where no points fell).
-    """
+    ):
     if not parquet_files:
         raise FileNotFoundError("No IPP parquet files provided.")
 
     df_all = dd.read_parquet(parquet_files, columns=[y_col, dtec_col])
     df_all = df_all.dropna(subset=[y_col, dtec_col])
-
-    # Datetime index → decimal hours
     df_all = df_all.reset_index()
-    df_all["t_hours"] = (
-        df_all["horario"].dt.hour
-        + df_all["horario"].dt.minute / 60
-        + df_all["horario"].dt.second / 3600
-    )
+
+    # ✅ Segundos inteiros: sem divisão de float, sem erro de arredondamento
+    df_all["t_seconds"] = (
+        df_all["horario"].dt.hour * 3600
+        + df_all["horario"].dt.minute * 60
+        + df_all["horario"].dt.second
+    ).astype("int32")
 
     canvas = ds.Canvas(
         plot_width=plot_width,
         plot_height=plot_height,
-        x_range=(0.0, 24.0),
+        x_range=(0, 86400),   # 0s a 86400s (24h)
         y_range=y_range,
     )
 
-    agg = canvas.points(df_all, "t_hours", y_col, agg=ds.mean(dtec_col))
+    agg = canvas.points(df_all, "t_seconds", y_col, agg=ds.mean(dtec_col))
     return agg
 
 
@@ -118,7 +93,7 @@ def plot_keogram(nc_path: Path, trh: float = 0.5, cmap=cc.coolwarm):
 # ==========================================
 def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
                       trh: float = 0.5, cmap: str = "RdBu_r",
-                      dpi: int = 150, out_path: Path = None):
+                      dpi: int = 200, out_path: Path = None):
     """
     Loads both lat and lon NetCDF grids and renders them as a two-panel
     figure (Time × Lat on top, Time × Lon on bottom) sharing the X axis.
@@ -140,11 +115,11 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
     agg_lon = xr.open_dataarray(Path(nc_path_lon))
 
     extent_lat = [
-        float(agg_lat["t_hours"].min()), float(agg_lat["t_hours"].max()),
+        float(agg_lat["t_seconds"].min())/3600, float(agg_lat["t_seconds"].max())/3600,
         float(agg_lat["lts"].min()),     float(agg_lat["lts"].max()),
     ]
     extent_lon = [
-        float(agg_lon["t_hours"].min()), float(agg_lon["t_hours"].max()),
+        float(agg_lon["t_seconds"].min())/3600, float(agg_lon["t_seconds"].max())/3600,
         float(agg_lon["lns"].min()),     float(agg_lon["lns"].max()),
     ]
 
@@ -166,6 +141,7 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
         agg_lon.values, extent=extent_lon, origin="lower", aspect="auto",
         cmap=cmap, vmin=-trh, vmax=trh, interpolation="nearest",
     )
+
     axes[1].set_ylabel("Longitude (°)")
     axes[1].set_xlabel("Time (UTC, hours)")
     axes[1].set_xlim(0, 24)
@@ -231,7 +207,7 @@ def main_build(year, doy, resolution="low"):
     print("Building lon keogram...")
     agg_lon = build_keogram_grid(
         parquet_files, y_col="lns", y_range=LON_RANGE,
-        plot_width=5760, plot_height=plot_height_lon,
+        plot_width=5760, plot_height=plot_height_lon, dtec_col = DTEC_COL
     )
     save_grid(agg_lon, keograms_folder / f"keogram_lon_{year}_{doy:03d}_{resolution}.nc")
 
@@ -268,12 +244,18 @@ def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
 # 6. IDE / CLI entry point
 # ==========================================
 if __name__ == "__main__":
+    # Default ranges per axis ----------------------------------------------------
+    LAT_RANGE = (-60.0,  60.0)    # 120° span
+    LON_RANGE = (-120.0, -20.0)   # 100° span (Americas)
+
+    DTEC_COL = "dtec_30min"
+    
     RUN_MANUALLY = True
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2025, 317
-        resolution = 'high'
+        year, doy = 2021, 296
+        resolution = 'low'
         # Stage 1 — run once
         main_build(year=year, doy=doy, resolution=resolution)
 
