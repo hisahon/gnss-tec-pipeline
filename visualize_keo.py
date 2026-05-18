@@ -427,7 +427,7 @@ if __name__ == "__main__":
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2025, 317
+        year, doy = 2025, 316
         
         resolution = 'high'
         # Stage 1 — run once
@@ -439,7 +439,9 @@ if __name__ == "__main__":
         #           use_matplotlib=False)
 
         # matplotlib version (with axes, colorbar, title)
-        main_plot(year=year, doy=doy, resolution=resolution, trh=1.01,
+        main_plot(year=year, doy=doy, resolution=resolution,
+                  # trh=0.201,
+                  trh=1.01,
                   use_matplotlib=True)
 
     else:
