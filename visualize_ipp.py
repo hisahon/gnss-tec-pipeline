@@ -16,7 +16,7 @@ from scipy.interpolate import interp1d
 
 # Import custom modules
 from shared.geometry import ipp_geometric
-from shared.prn_store import get_station_names, get_station_paths
+from shared.prn_store import get_station_paths
 from shared.config import station_positions_dir, dtec_ipp_dir
 from shared.geometry import ipp_calc2
 from shared.figures_rasther import plot_ipp_trajectory2
@@ -150,7 +150,7 @@ def plot_ipp_map(df_ipp, rx_coords_tuple, station_name="Station", save_path=None
     plt.grid(True, linestyle=":", linewidth=0.6)
     
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Figure saved to {save_path}")
     else:
         plt.show()
@@ -211,7 +211,7 @@ def main(root_dir, year, doy, height=350.0, save_fig=False):
         
        
         try:
-            plot_ipp_trajectory2(df_dtec, station, date_title, trh=1.)
+            plot_ipp_trajectory2(df_dtec, station, date_title, trh=0.301)
             print(f"Sucess Ploting: {station}")
         except:
             print(f"########## Error Ploting: {station}")

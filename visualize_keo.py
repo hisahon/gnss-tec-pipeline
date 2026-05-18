@@ -175,13 +175,13 @@ def parse_arguments():
 # ==========================================
 # 5. Entry points
 # ==========================================
-def main_build(year, doy, resolution="low"):
+def main_build(year, doy, resolution="low", dtec_col="dtec_10min"):
     """
     Stage 1 — aggregate all station parquets into TWO NetCDF grids
     (one for latitude, one for longitude).
     """
     # Resolution in degrees per pixel
-    deg_per_px      = 0.1 if resolution == "low" else 0.05
+    deg_per_px      = 0.1 if resolution == "low" else 0.025
     plot_height_lat = int((LAT_RANGE[1] - LAT_RANGE[0]) / deg_per_px)
     plot_height_lon = int((LON_RANGE[1] - LON_RANGE[0]) / deg_per_px)
 
@@ -199,7 +199,7 @@ def main_build(year, doy, resolution="low"):
     print("Building lat keogram...")
     agg_lat = build_keogram_grid(
         parquet_files, y_col="lts", y_range=LAT_RANGE,
-        plot_width=5760, plot_height=plot_height_lat,
+        plot_width=5760, plot_height=plot_height_lat, dtec_col = DTEC_COL
     )
     save_grid(agg_lat, keograms_folder / f"keogram_lat_{year}_{doy:03d}_{resolution}.nc")
 
@@ -245,19 +245,22 @@ def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
 # ==========================================
 if __name__ == "__main__":
     # Default ranges per axis ----------------------------------------------------
-    LAT_RANGE = (-60.0,  60.0)    # 120° span
-    LON_RANGE = (-120.0, -20.0)   # 100° span (Americas)
+    # LAT_RANGE = (-60.0,  60.0)    # 120° span
+    # LON_RANGE = (-120.0, -20.0)   # 100° span (Americas)
+    
+    LAT_RANGE = (-30.0,  0.0)    # 120° span
+    LON_RANGE = (-70, -30.0)   # 100° span (Americas)
 
-    DTEC_COL = "dtec_30min"
+    DTEC_COL = "dtec_15min"
     
     RUN_MANUALLY = True
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
         year, doy = 2021, 296
-        resolution = 'low'
+        resolution = 'high'
         # Stage 1 — run once
-        main_build(year=year, doy=doy, resolution=resolution)
+        main_build(year=year, doy=doy, resolution=resolution, dtec_col=DTEC_COL)
 
         # # Stage 2 — pick ONE of the two below:
         # # datashader raw image (fast, no axes)
@@ -265,7 +268,7 @@ if __name__ == "__main__":
         #           use_matplotlib=False)
 
         # matplotlib version (with axes, colorbar, title)
-        main_plot(year=year, doy=doy, resolution=resolution, trh=0.3,
+        main_plot(year=year, doy=doy, resolution=resolution, trh=0.101,
                   use_matplotlib=True)
 
     else:
