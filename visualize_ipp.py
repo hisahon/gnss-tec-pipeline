@@ -232,8 +232,8 @@ if __name__ == "__main__":
         print("Running in IDE Manual Mode...")
         main(
             root_dir="tec_pc/",
-            year=2021,
-            doy=296,
+            year=2022,
+            doy=279,
             height=350.0,
             save_fig=False 
         )

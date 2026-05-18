@@ -13,6 +13,7 @@ generates one .nc grid + one .png image per axis.
 """
 
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
@@ -22,9 +23,10 @@ import datashader.transfer_functions as tf
 import xarray as xr
 import colorcet as cc
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker  # Importe o módulo ticker
 
 # Import custom modules
-from shared.config import dtec_ipp_dir, dtec_keogram_dir
+from shared.config import dtec_ipp_dir, dtec_keogram_dir, dtec_keogram_figs_dir
 
 
 
@@ -93,7 +95,7 @@ def plot_keogram(nc_path: Path, trh: float = 0.5, cmap=cc.coolwarm):
 # ==========================================
 def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
                       trh: float = 0.5, cmap: str = "RdBu_r",
-                      dpi: int = 200, out_path: Path = None):
+                      dpi: int = 300, out_path: Path = None):
     """
     Loads both lat and lon NetCDF grids and renders them as a two-panel
     figure (Time × Lat on top, Time × Lon on bottom) sharing the X axis.
@@ -126,31 +128,44 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
     fig, axes = plt.subplots(2, 1, figsize=(14, 9),
                              constrained_layout=True, sharex=True)
 
-    # --- Top: Latitude ---
-    im_lat = axes[0].imshow(
+    # --- Top: Longitud ---
+    
+    im_lon = axes[0].imshow(
+        agg_lon.values, extent=extent_lon, origin="lower", aspect="auto",
+        cmap=cmap, vmin=-trh, vmax=trh,
+        interpolation="nearest",
+    )
+    
+    axes[0].set_title(f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  resolution: {resolution}")
+    axes[0].set_ylabel("Longitude (°)")
+    
+    
+    axes[0].grid(True, linestyle=":", alpha=0.4)
+    plt.colorbar(im_lon, ax=axes[0]).set_label("dTEC (TECU)")
+    
+
+    # --- Bottom: Latitud ---
+    
+    im_lat = axes[1].imshow(
         agg_lat.values, extent=extent_lat, origin="lower", aspect="auto",
         cmap=cmap, vmin=-trh, vmax=trh, interpolation="nearest",
     )
-    axes[0].set_ylabel("Latitude (°)")
-    axes[0].set_title(f"dTEC Keogram — {year} DOY {doy:03d}  |  30-min moving average  |  resolution: {resolution}")
-    axes[0].grid(True, linestyle=":", alpha=0.4)
-    plt.colorbar(im_lat, ax=axes[0]).set_label("dTEC (TECU)")
+    axes[1].set_ylabel("Latitude (°)")
+    
 
-    # --- Bottom: Longitude ---
-    im_lon = axes[1].imshow(
-        agg_lon.values, extent=extent_lon, origin="lower", aspect="auto",
-        cmap=cmap, vmin=-trh, vmax=trh, interpolation="nearest",
-    )
-
-    axes[1].set_ylabel("Longitude (°)")
-    axes[1].set_xlabel("Time (UTC, hours)")
     axes[1].set_xlim(0, 24)
-    axes[1].set_xticks(np.arange(0, 25, 4))
-    axes[1].grid(True, linestyle=":", alpha=0.4)
-    plt.colorbar(im_lon, ax=axes[1]).set_label("dTEC (TECU)")
+
+    axes[1].set_xticks(np.arange(0, 25, 3))
+    axes[1].set_xlabel("Time (UTC, hours)")
+    axes[1].xaxis.set_minor_locator(ticker.MultipleLocator(1))
+    axes[1].grid(True, which='major', linestyle=":", alpha=0.4)
+    axes[1].grid(True, which='minor', linestyle=":", alpha=0.2) # Grid mais suave para os minor ticks
+    
+    # plt.colorbar(im_lon, ax=axes[1]).set_label("dTEC (TECU)")
+    plt.colorbar(im_lat, ax=axes[1]).set_label("dTEC (TECU)")
 
     if out_path is None:
-        out_path = Path(nc_path_lat).parent / f"keogram_{year}{doy}_{resolution}.mpl.png"
+        out_path = dtec_keogram_figs_dir() / f"keogram_{year}{doy:03d}_{resolution}.mpl.png"
     
     plt.savefig(out_path, dpi=dpi)
     plt.close(fig)
@@ -181,7 +196,15 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min"):
     (one for latitude, one for longitude).
     """
     # Resolution in degrees per pixel
-    deg_per_px      = 0.1 if resolution == "low" else 0.025
+    resolutions = {
+        "low": 0.1,
+        "high": 0.05,
+        "very high": 0.025,
+        "ultra": 0.005
+    }
+    
+    deg_per_px = resolutions.get(resolution, 0.01)
+    
     plot_height_lat = int((LAT_RANGE[1] - LAT_RANGE[0]) / deg_per_px)
     plot_height_lon = int((LON_RANGE[1] - LON_RANGE[0]) / deg_per_px)
 
@@ -233,7 +256,7 @@ def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
         return
 
     if use_matplotlib:
-        mpl_cmap = "rainbow" if cmap is cc.coolwarm else cmap
+        mpl_cmap = "seismic" if cmap is cc.coolwarm else cmap
         plot_keograms_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap)
     else:
         plot_keogram(nc_lat, trh=trh, cmap=cmap)
@@ -250,14 +273,19 @@ if __name__ == "__main__":
     
     LAT_RANGE = (-30.0,  0.0)    # 120° span
     LON_RANGE = (-70, -30.0)   # 100° span (Americas)
+    
+    # LAT_RANGE = (-25.0,  -20.0)    # 120° span
+    # LON_RANGE = (-60, -50.0)   # 100° span (Americas)
 
     DTEC_COL = "dtec_15min"
+    movavg = int(re.findall(r'\d+', DTEC_COL)[0])
     
     RUN_MANUALLY = True
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2021, 296
+        year, doy = 2022, 97
+        
         resolution = 'high'
         # Stage 1 — run once
         main_build(year=year, doy=doy, resolution=resolution, dtec_col=DTEC_COL)
@@ -268,7 +296,7 @@ if __name__ == "__main__":
         #           use_matplotlib=False)
 
         # matplotlib version (with axes, colorbar, title)
-        main_plot(year=year, doy=doy, resolution=resolution, trh=0.101,
+        main_plot(year=year, doy=doy, resolution=resolution, trh=0.201,
                   use_matplotlib=True)
 
     else:
