@@ -512,11 +512,11 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
             y, fs=SAMPLING_RATE_HZ, win_sec=DETREND_WIN_SEC, kernel="hann",
         )
 
-        # 3. Bandpass zero-phase para isolar os TIDs
-        y_bw = butter_filter_nan_segments(
-            y_cv, fs=SAMPLING_RATE_HZ, kind="bandpass",
-            cutoff=BANDPASS_CUTOFFS, order=BANDPASS_ORDER,
-        )
+        # # 3. Bandpass zero-phase para isolar os TIDs
+        # y_bw = butter_filter_nan_segments(
+        #     y_cv, fs=SAMPLING_RATE_HZ, kind="bandpass",
+        #     cutoff=BANDPASS_CUTOFFS, order=BANDPASS_ORDER,
+        # )
 
         # Pular se o sinal ficar totalmente vazio após os filtros
         if s.dropna().empty or np.sum(~np.isnan(y_cv)) < 20:
@@ -529,7 +529,7 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
         df_result = pd.DataFrame({
                                 dt_col: df_prn.index,
                                 'prn': prn_val,
-                                dtec_key: y_bw
+                                dtec_key: y_cv
                                 })
         
         df_result = df_result.dropna(subset=[dtec_key])
@@ -550,7 +550,7 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
             ax1.set_title(f"Estação: {station} | PRN: {prn_val}")
             ax1.grid(True, linestyle=":", linewidth=0.6)
 
-            ax2.plot(df_prn.index, y_bw, linewidth=1.2)
+            ax2.plot(df_prn.index, y_cv, linewidth=1.2)
             ax2.set_xlabel("Tempo")
             ax2.set_ylabel("TEC s/ Tendência")
             ax2.set_ylim(-1, 1)
@@ -596,13 +596,13 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     
-    year, doy = 2021, 296
+    year, doy = 2025, 315
     
     # ---------------------------------------------------------------------------
     # Pipeline parameters
     # ---------------------------------------------------------------------------
     # SAMPLING_RATE_HZ  = 4 / 60          # 4 samples per minute (15 s sampling)
-    DETREND_WIN_MIN  = 15
+    DETREND_WIN_MIN  = 30
     DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
     # BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
     BANDPASS_CUTOFFS = (1.11e-3, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s

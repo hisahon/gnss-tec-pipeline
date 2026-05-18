@@ -572,7 +572,7 @@ if __name__ == "__main__":
     # BASE_DB = Path("/home/hisashi/database/gnss/")
     # BASE_DB = Path("D:/database")
     
-    year, doy = 2021, 296
+    year, doy = 2025, 315
     # Parquet with station positions (ECEF + lat/lon/h)
     STATION_POSITIONS_PARQUET = station_positions_dir() / "SP_2021-296.parquet"
     FOLDER_PARQUETS = dtec_pc_dir(year, doy) 

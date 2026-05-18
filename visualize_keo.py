@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker  # Importe o módulo ticker
 
 # Import custom modules
-from shared.config import dtec_ipp_dir, dtec_keogram_dir, dtec_keogram_figs_dir
+from shared.config import dtec_ipp_dir, dtec_keogram_dir, dtec_keogram_figs_dir, storms_SouthAmerica
 
 
 
@@ -96,23 +96,13 @@ def plot_keogram(nc_path: Path, trh: float = 0.5, cmap=cc.coolwarm):
 def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
                       trh: float = 0.5, cmap: str = "RdBu_r",
                       dpi: int = 300, out_path: Path = None):
-    """
-    Loads both lat and lon NetCDF grids and renders them as a two-panel
-    figure (Time × Lat on top, Time × Lon on bottom) sharing the X axis.
-
-    Parameters
-    ----------
-    nc_path_lat, nc_path_lon : Path
-        Paths to the .nc grids produced by save_grid().
-    trh : float
-        Symmetric color limits [-trh, +trh] in TECU.
-    cmap : str
-        Matplotlib colormap name.
-    dpi : int
-        Output resolution.
-    out_path : Path, optional
-        Output PNG path. Defaults to keograms_combined_*.png next to the .nc.
-    """
+    resolutions = {
+        "low": 0.1,
+        "high": 0.05,
+        "very high": 0.025,
+        "ultra": 0.005,
+    }
+    
     agg_lat = xr.open_dataarray(Path(nc_path_lat))
     agg_lon = xr.open_dataarray(Path(nc_path_lon))
 
@@ -136,8 +126,13 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
         interpolation="nearest",
     )
     
-    axes[0].set_title(f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  resolution: {resolution}")
-    axes[0].set_ylabel("Longitude (°)")
+    axes[0].set_title(
+        f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  "
+        f" Each pixel: {resolutions.get(resolution, 0.01)} deg x 15 sec"
+    )
+    
+    axes[0].set_ylabel("Longitud, deg")
+    axes[0].set_ylim(LON_RANGE)
     
     
     axes[0].grid(True, linestyle=":", alpha=0.4)
@@ -150,13 +145,14 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
         agg_lat.values, extent=extent_lat, origin="lower", aspect="auto",
         cmap=cmap, vmin=-trh, vmax=trh, interpolation="nearest",
     )
-    axes[1].set_ylabel("Latitude (°)")
+    axes[1].set_ylabel("Latitud, deg")
     
 
     axes[1].set_xlim(0, 24)
 
     axes[1].set_xticks(np.arange(0, 25, 3))
     axes[1].set_xlabel("Time (UTC, hours)")
+    axes[1].set_ylim(LAT_RANGE)
     axes[1].xaxis.set_minor_locator(ticker.MultipleLocator(1))
     axes[1].grid(True, which='major', linestyle=":", alpha=0.4)
     axes[1].grid(True, which='minor', linestyle=":", alpha=0.2) # Grid mais suave para os minor ticks
@@ -167,6 +163,148 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
     if out_path is None:
         out_path = dtec_keogram_figs_dir() / f"keogram_{year}{doy:03d}_{resolution}.mpl.png"
     
+    plt.savefig(out_path, dpi=dpi)
+    plt.close(fig)
+    print(f"Image saved: {out_path}")
+    
+
+import matplotlib as mpl
+import pandas as pd
+
+def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
+                            trh: float = 0.5, cmap: str = "RdBu_r",
+                            plot_storms: bool = False,
+                            dpi: int = 300, out_path: Path = None):
+    
+
+    # --- Storm overlay styling (fixed, not exposed in the signature) -
+    storm_temp_col  = "temp_min_C"
+    storm_cmap      = "rainbow"
+    storm_vmin      = -90.0
+    storm_vmax      = -70.0
+    storm_linewidth = 2.0
+    storm_alpha     = 1.0
+
+    resolutions = {
+        "low": 0.1,
+        "high": 0.05,
+        "very high": 0.025,
+        "ultra": 0.005,
+    }
+
+    agg_lat = xr.open_dataarray(Path(nc_path_lat))
+    agg_lon = xr.open_dataarray(Path(nc_path_lon))
+    extent_lat = [
+        float(agg_lat["t_seconds"].min())/3600, float(agg_lat["t_seconds"].max())/3600,
+        float(agg_lat["lts"].min()),     float(agg_lat["lts"].max()),
+    ]
+    extent_lon = [
+        float(agg_lon["t_seconds"].min())/3600, float(agg_lon["t_seconds"].max())/3600,
+        float(agg_lon["lns"].min()),     float(agg_lon["lns"].max()),
+    ]
+
+    # --- Storms overlay: pre-compute X (hours), Y spans and colors ---
+    # Loaded once and reused on both panels. If plot_storms is False,
+    # nothing is overlaid — original behavior is preserved.
+    storms_data = None
+    if plot_storms:
+        df_storms = pd.read_parquet(storms_SouthAmerica(), engine="fastparquet")
+        # equivalent radius in degrees from area (km²)
+        df_storms['radius_deg'] = np.sqrt(df_storms['area_km2'] / np.pi) / 110.0
+
+        # clip to the target day (same module-level year/doy used in the title)
+        t0 = pd.Timestamp(year=year, month=1, day=1) + pd.Timedelta(days=doy - 1)
+        t1 = t0 + pd.Timedelta(days=1)
+        df_storms = df_storms[
+            (df_storms['datetime'] >= t0) & (df_storms['datetime'] < t1)
+        ].copy()
+
+        if not df_storms.empty:
+            dt = pd.to_datetime(df_storms['datetime'])
+            if dt.dt.tz is not None:
+                dt = dt.dt.tz_convert(None)
+            t_hours = (dt - t0).dt.total_seconds().to_numpy() / 3600.0
+
+            norm_s = mpl.colors.Normalize(vmin=storm_vmin, vmax=storm_vmax)
+            sm_s   = mpl.cm.ScalarMappable(norm=norm_s, cmap=storm_cmap)
+            sm_s.set_array([])
+            storm_colors = sm_s.to_rgba(df_storms[storm_temp_col].to_numpy())
+
+            lon_c = df_storms['centroid_lon'].to_numpy()
+            lat_c = df_storms['centroid_lat'].to_numpy()
+            rad2  = df_storms['radius_deg'].to_numpy() / 2.0
+
+            storms_data = dict(
+                t=t_hours, colors=storm_colors, sm=sm_s,
+                lon_lo=lon_c - rad2, lon_hi=lon_c + rad2,
+                lat_lo=lat_c - rad2, lat_hi=lat_c + rad2,
+            )
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 9),
+                             constrained_layout=True, sharex=True)
+    # --- Top: Longitud ---
+
+    im_lon = axes[0].imshow(
+        agg_lon.values, extent=extent_lon, origin="lower", aspect="auto",
+        cmap=cmap, vmin=-trh, vmax=trh,
+        interpolation="nearest",
+    )
+
+    axes[0].set_title(
+        f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  "
+        f"resolution: {resolutions.get(resolution, 0.01)} deg x 15 sec"
+    )
+    axes[0].set_ylabel("Longitud, deg")
+    axes[0].set_ylim(LON_RANGE) 
+
+    axes[0].grid(True, linestyle=":", alpha=0.4)
+    plt.colorbar(im_lon, ax=axes[0]).set_label("dTEC (TECU)")
+
+    # Storm overlay (top panel: longitude span)
+    if storms_data is not None:
+        axes[0].vlines(storms_data["t"],
+                       storms_data["lon_lo"], storms_data["lon_hi"],
+                       colors=storms_data["colors"],
+                       linewidth=storm_linewidth, alpha=storm_alpha,
+                       zorder=3, label='Storms')
+    
+    
+
+    # --- Bottom: Latitud ---
+
+    im_lat = axes[1].imshow(
+        agg_lat.values, extent=extent_lat, origin="lower", aspect="auto",
+        cmap=cmap, vmin=-trh, vmax=trh, interpolation="nearest",
+    )
+    axes[1].set_ylabel("Latitud, deg")
+    
+
+    axes[1].set_xlim(0, 24)
+    axes[1].set_ylim(LAT_RANGE)
+    axes[1].set_xticks(np.arange(0, 25, 3))
+    axes[1].set_xlabel("Time (UTC, hours)")
+    axes[1].xaxis.set_minor_locator(ticker.MultipleLocator(1))
+    axes[1].grid(True, which='major', linestyle=":", alpha=0.4)
+    axes[1].grid(True, which='minor', linestyle=":", alpha=0.2)
+
+    plt.colorbar(im_lat, ax=axes[1]).set_label("dTEC (TECU)")
+
+    # Storm overlay (bottom panel: latitude span)
+    if storms_data is not None:
+        axes[1].vlines(storms_data["t"],
+                       storms_data["lat_lo"], storms_data["lat_hi"],
+                       colors=storms_data["colors"],
+                       linewidth=storm_linewidth, alpha=storm_alpha,
+                       zorder=3, label='Storms')
+        # Optional shared colorbar for storm temperature (kept commented
+        # out to preserve the original two-colorbar layout).
+        # cb_s = fig.colorbar(storms_data["sm"], ax=axes,
+        #                     location='right', shrink=0.6, pad=0.02)
+        # cb_s.set_label("min cloud-top T (°C)")
+
+    if out_path is None:
+        out_path = dtec_keogram_figs_dir() / f"keogram_{year}{doy:03d}_{resolution}.mpl.png"
+
     plt.savefig(out_path, dpi=dpi)
     plt.close(fig)
     print(f"Image saved: {out_path}")
@@ -196,12 +334,12 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min"):
     (one for latitude, one for longitude).
     """
     # Resolution in degrees per pixel
+
     resolutions = {
         "low": 0.1,
         "high": 0.05,
         "very high": 0.025,
-        "ultra": 0.005
-    }
+        "ultra": 0.005}
     
     deg_per_px = resolutions.get(resolution, 0.01)
     
@@ -256,8 +394,9 @@ def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
         return
 
     if use_matplotlib:
-        mpl_cmap = "seismic" if cmap is cc.coolwarm else cmap
+        mpl_cmap = "rainbow" if cmap is cc.coolwarm else cmap
         plot_keograms_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap)
+        # plot_keograms_storm_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap, plot_storms = True)
     else:
         plot_keogram(nc_lat, trh=trh, cmap=cmap)
         plot_keogram(nc_lon, trh=trh, cmap=cmap)
@@ -267,24 +406,28 @@ def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
 # 6. IDE / CLI entry point
 # ==========================================
 if __name__ == "__main__":
-    # Default ranges per axis ----------------------------------------------------
-    # LAT_RANGE = (-60.0,  60.0)    # 120° span
-    # LON_RANGE = (-120.0, -20.0)   # 100° span (Americas)
     
-    LAT_RANGE = (-30.0,  0.0)    # 120° span
-    LON_RANGE = (-70, -30.0)   # 100° span (Americas)
+
+    
+    # Default ranges per axis ----------------------------------------------------
+    LAT_RANGE = (-60.01,  60.01)    # 120° span
+    LON_RANGE = (-120.01, -19.99)   # 100° span (Americas)
+    
+    # LAT_RANGE = (-30.0,  0.0)    # 120° span
+    # LON_RANGE = (-70, -30.0)   # 100° span (Americas)
+    # TIME_RANGE = (0, 24)
     
     # LAT_RANGE = (-25.0,  -20.0)    # 120° span
     # LON_RANGE = (-60, -50.0)   # 100° span (Americas)
 
-    DTEC_COL = "dtec_15min"
+    DTEC_COL = "dtec_30min"
     movavg = int(re.findall(r'\d+', DTEC_COL)[0])
     
     RUN_MANUALLY = True
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2022, 97
+        year, doy = 2025, 317
         
         resolution = 'high'
         # Stage 1 — run once
@@ -296,7 +439,7 @@ if __name__ == "__main__":
         #           use_matplotlib=False)
 
         # matplotlib version (with axes, colorbar, title)
-        main_plot(year=year, doy=doy, resolution=resolution, trh=0.201,
+        main_plot(year=year, doy=doy, resolution=resolution, trh=1.01,
                   use_matplotlib=True)
 
     else:
