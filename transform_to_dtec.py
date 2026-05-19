@@ -30,10 +30,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.signal import butter, sosfilt, sosfiltfilt, hilbert
 
-from concurrent.futures import ProcessPoolExecutor
-from functools import partial
+# from concurrent.futures import ProcessPoolExecutor
+# from functools import partial
 
-from shared.config import dtec_pc_dir, ephemeris_parquet_dir
+from shared.config import dtec_pc_dir#, ephemeris_parquet_dir
 from shared.prn_store import load_tec_with_neighbors_v2, get_station_names
 from shared.geometry import interpolate_orbits, satellite_xyz_v2
 

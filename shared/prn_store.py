@@ -242,25 +242,27 @@ def load_tec_with_neighbors_v2(
 ) -> pd.DataFrame:
     """Read the central day's TEC, optionally padded with DOY±1 neighbors.
 
-    Returns rows for the central day only — neighbors (when loaded) just
-    feed downstream interpolators slack at day boundaries.
+    Returns rows for the central day only — neighbors (when loaded) just feed
+    downstream interpolators slack at day boundaries.
+
+    DuckDB is used here (instead of Dask) because the workload is small and
+    bounded: at most 3 parquet files per call, filtered by timestamp, returned
+    as a pandas DataFrame that fits in memory. DuckDB gives zero-setup in-process
+    SQL with predicate/projection pushdown into parquet; Dask's task-graph and
+    scheduler overhead would dominate at this scale.
     """
     base = dt.date(year, 1, 1) + dt.timedelta(days=doy - 1)
 
     # -1, 0, +1 with neighbors; only 0 without.
     offsets = (-1, 0, 1) if with_neighbors else (0,)
-    pairs = [
-        (
-            (base + dt.timedelta(days=k)).year,
-            (base + dt.timedelta(days=k)).timetuple().tm_yday,
-        )
-        for k in offsets
-    ]
+    dates = [base + dt.timedelta(days=k) for k in offsets]
+    pairs = [(d.year, d.timetuple().tm_yday) for d in dates]
 
+    
     files = []
     for y, d in pairs:
         path = tec_pc_dir(y, d) 
-        files.extend(path.rglob(f"{station}_{y}{d:03d}.parquet"))
+        files.extend(f for f in path.rglob(f"{station}_{y}{d:03d}.parquet") if f.exists())
 
     if not files:
         return pd.DataFrame(columns=["prn", "horario", "tec_pcarrier"])
@@ -268,6 +270,11 @@ def load_tec_with_neighbors_v2(
     # Always filter to the central day; neighbors are read just for padding.
     day_start = base - dt.timedelta(days=1)
     day_end = base + dt.timedelta(days=1)
+    
+    # Filter window derived from the same offsets, so it stays consistent
+    # with with_neighbors — no wider than the files actually loaded.
+    day_start = min(dates)
+    day_end   = max(dates) + dt.timedelta(days=1)  # closed-open interval [start, end)
 
     with duckdb.connect(":memory:") as con:
         df = con.execute(f"""
