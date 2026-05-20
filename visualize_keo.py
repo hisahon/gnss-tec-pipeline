@@ -99,7 +99,7 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
     resolutions = {
         "low": 0.1,
         "high": 0.05,
-        "very high": 0.025,
+        "veryhigh": 0.025,
         "ultra": 0.005,
     }
     
@@ -128,7 +128,7 @@ def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
     
     axes[0].set_title(
         f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  "
-        f" Each pixel: {resolutions.get(resolution, 0.01)} deg x 15 sec"
+        f" Each pixel: {resolutions.get(resolution, 0.1)} deg x 15 sec"
     )
     
     axes[0].set_ylabel("Longitud, deg")
@@ -181,14 +181,14 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
     storm_temp_col  = "temp_min_C"
     storm_cmap      = "rainbow"
     storm_vmin      = -90.0
-    storm_vmax      = -70.0
-    storm_linewidth = 2.0
-    storm_alpha     = 1.0
+    storm_vmax      = -65.0
+    storm_linewidth = 6.0
+    storm_alpha     = 0.25
 
     resolutions = {
         "low": 0.1,
         "high": 0.05,
-        "very high": 0.025,
+        "veryhigh": 0.025,
         "ultra": 0.005,
     }
 
@@ -252,7 +252,7 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
 
     axes[0].set_title(
         f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  "
-        f"resolution: {resolutions.get(resolution, 0.01)} deg x 15 sec"
+        f"resolution: {resolutions.get(resolution, 0.1)} deg x 15 sec"
     )
     axes[0].set_ylabel("Longitud, deg")
     axes[0].set_ylim(LON_RANGE) 
@@ -338,10 +338,10 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min"):
     resolutions = {
         "low": 0.1,
         "high": 0.05,
-        "very high": 0.025,
+        "veryhigh": 0.025,
         "ultra": 0.005}
     
-    deg_per_px = resolutions.get(resolution, 0.01)
+    deg_per_px = resolutions.get(resolution, 0.1)
     
     plot_height_lat = int((LAT_RANGE[1] - LAT_RANGE[0]) / deg_per_px)
     plot_height_lon = int((LON_RANGE[1] - LON_RANGE[0]) / deg_per_px)
@@ -394,9 +394,9 @@ def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
         return
 
     if use_matplotlib:
-        mpl_cmap = "rainbow" if cmap is cc.coolwarm else cmap
-        plot_keograms_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap)
-        # plot_keograms_storm_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap, plot_storms = True)
+        mpl_cmap = "seismic" if cmap is cc.coolwarm else cmap
+        # plot_keograms_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap)
+        plot_keograms_storm_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap, plot_storms = True)
     else:
         plot_keogram(nc_lat, trh=trh, cmap=cmap)
         plot_keogram(nc_lon, trh=trh, cmap=cmap)
@@ -413,23 +413,24 @@ if __name__ == "__main__":
     LAT_RANGE = (-60.01,  60.01)    # 120° span
     LON_RANGE = (-120.01, -19.99)   # 100° span (Americas)
     
-    # LAT_RANGE = (-30.0,  0.0)    # 120° span
-    # LON_RANGE = (-70, -30.0)   # 100° span (Americas)
+    LAT_RANGE = (-30.0,  0.0)    # 120° span
+    LON_RANGE = (-70, -30.0)   # 100° span (Americas)
     # TIME_RANGE = (0, 24)
     
     # LAT_RANGE = (-25.0,  -20.0)    # 120° span
     # LON_RANGE = (-60, -50.0)   # 100° span (Americas)
 
-    DTEC_COL = "dtec_30min"
+    DTEC_COL = "dtec_15min"
     movavg = int(re.findall(r'\d+', DTEC_COL)[0])
     
     RUN_MANUALLY = True
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2025, 316
+        year, doy = 2025, 298
         
-        resolution = 'high'
+        # resolution = 'high'
+        resolution = 'low'
         # Stage 1 — run once
         main_build(year=year, doy=doy, resolution=resolution, dtec_col=DTEC_COL)
 
@@ -440,8 +441,8 @@ if __name__ == "__main__":
 
         # matplotlib version (with axes, colorbar, title)
         main_plot(year=year, doy=doy, resolution=resolution,
-                  # trh=0.201,
-                  trh=1.01,
+                  trh=0.151,
+                  # trh=1.01,
                   use_matplotlib=True)
 
     else:

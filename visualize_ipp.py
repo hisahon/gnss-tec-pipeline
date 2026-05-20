@@ -233,7 +233,7 @@ if __name__ == "__main__":
         main(
             root_dir="tec_pc/",
             year=2025,
-            doy=315,
+            doy=298,
             height=350.0,
             save_fig=False 
         )
