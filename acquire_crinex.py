@@ -31,7 +31,7 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 
-import config
+import shared.config as cfg
 
 log = logging.getLogger("download")
 
@@ -172,7 +172,7 @@ NETWORKS = {
 
 
 def run(year: int, doy: int, network: str = "both") -> None:
-    out_dir = config.crinex_dir(year, doy)
+    out_dir = cfg.crinex_dir(year, doy)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     targets = list(NETWORKS) if network == "both" else [network]
@@ -194,6 +194,6 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    config.setup_logging()
+    cfg.setup_logging()
     args = parse_args()
     run(args.year, args.doy, args.network)

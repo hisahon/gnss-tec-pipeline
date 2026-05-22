@@ -44,8 +44,9 @@ if not DB_ROOT or str(DB_ROOT) == ".":
 # ---------- helpers de caminho ----------
 
 def crinex_dir(year: int, doy: int) -> Path:
-    return DB_ROOT / "gnss" / "crinex" / f"{year}" / f"{doy:03d}"
-
+    folder_out = DB_ROOT / "gnss" / "crinex" / f"{year}" / f"{doy:03d}"
+    folder_out.mkdir(parents=True, exist_ok=True)
+    return folder_out
 
 def rinex_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "gnss" / "rinex" / f"{year}" / f"{doy:03d}"

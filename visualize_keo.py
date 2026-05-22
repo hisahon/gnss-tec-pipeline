@@ -427,7 +427,7 @@ if __name__ == "__main__":
 
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2025, 298
+        year, doy = 2021, 295
         
         # resolution = 'high'
         resolution = 'low'
