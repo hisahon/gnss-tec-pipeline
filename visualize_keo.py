@@ -28,6 +28,7 @@ import matplotlib.ticker as ticker  # Importe o módulo ticker
 from scipy.ndimage import uniform_filter1d
 
 import matplotlib as mpl
+mpl.use("Agg")
 import pandas as pd
 
 # Import custom modules
@@ -120,79 +121,79 @@ def plot_keogram(nc_path: Path, trh: float = 0.5, cmap=cc.coolwarm):
 # ==========================================
 # 3b. Plot both keograms in a single figure (matplotlib, two panels)
 # ==========================================
-def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
-                      trh: float = 0.5, cmap: str = "RdBu_r",
-                      dpi: int = 300, out_path: Path = None):
-    resolutions = {
-        "low": 0.1,
-        "high": 0.05,
-        "veryhigh": 0.025,
-        "ultra": 0.005,
-    }
+# def plot_keograms_mpl(nc_path_lat: Path, nc_path_lon: Path,
+#                       trh: float = 0.5, cmap: str = "RdBu_r",
+#                       dpi: int = 300, out_path: Path = None):
+#     resolutions = {
+#         "low": 0.1,
+#         "high": 0.05,
+#         "veryhigh": 0.025,
+#         "ultra": 0.005,
+#     }
     
-    agg_lat = xr.open_dataarray(Path(nc_path_lat))
-    agg_lon = xr.open_dataarray(Path(nc_path_lon))
+#     agg_lat = xr.open_dataarray(Path(nc_path_lat))
+#     agg_lon = xr.open_dataarray(Path(nc_path_lon))
 
-    extent_lat = [
-        float(agg_lat["t_seconds"].min())/3600, float(agg_lat["t_seconds"].max())/3600,
-        float(agg_lat["lts"].min()),     float(agg_lat["lts"].max()),
-    ]
-    extent_lon = [
-        float(agg_lon["t_seconds"].min())/3600, float(agg_lon["t_seconds"].max())/3600,
-        float(agg_lon["lns"].min()),     float(agg_lon["lns"].max()),
-    ]
+#     extent_lat = [
+#         float(agg_lat["t_seconds"].min())/3600, float(agg_lat["t_seconds"].max())/3600,
+#         float(agg_lat["lts"].min()),     float(agg_lat["lts"].max()),
+#     ]
+#     extent_lon = [
+#         float(agg_lon["t_seconds"].min())/3600, float(agg_lon["t_seconds"].max())/3600,
+#         float(agg_lon["lns"].min()),     float(agg_lon["lns"].max()),
+#     ]
 
-    fig, axes = plt.subplots(2, 1, figsize=(14, 9),
-                             constrained_layout=True, sharex=True)
+#     fig, axes = plt.subplots(2, 1, figsize=(14, 9),
+#                              constrained_layout=True, sharex=True)
 
-    # --- Top: Longitud ---
+#     # --- Top: Longitud ---
     
-    im_lon = axes[0].imshow(
-        agg_lon.values, extent=extent_lon, origin="lower", aspect="auto",
-        cmap=cmap, vmin=-trh, vmax=trh,
-        interpolation="nearest",
-    )
+#     im_lon = axes[0].imshow(
+#         agg_lon.values, extent=extent_lon, origin="lower", aspect="auto",
+#         cmap=cmap, vmin=-trh, vmax=trh,
+#         interpolation="nearest",
+#     )
     
-    axes[0].set_title(
-        f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  "
-        f" Each pixel: {resolutions.get(resolution, 0.1)} deg x 15 sec"
-    )
+#     axes[0].set_title(
+#         f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  "
+#         f" Each pixel: {resolutions.get(resolution, 0.1)} deg x 15 sec"
+#     )
     
-    axes[0].set_ylabel("Longitud, deg")
-    axes[0].set_ylim(LON_RANGE)
+#     axes[0].set_ylabel("Longitud, deg")
+#     axes[0].set_ylim(LON_RANGE)
     
     
-    axes[0].grid(True, linestyle=":", alpha=0.4)
-    plt.colorbar(im_lon, ax=axes[0]).set_label("dTEC (TECU)")
-    
-
-    # --- Bottom: Latitud ---
-    
-    im_lat = axes[1].imshow(
-        agg_lat.values, extent=extent_lat, origin="lower", aspect="auto",
-        cmap=cmap, vmin=-trh, vmax=trh, interpolation="nearest",
-    )
-    axes[1].set_ylabel("Latitud, deg")
+#     axes[0].grid(True, linestyle=":", alpha=0.4)
+#     plt.colorbar(im_lon, ax=axes[0]).set_label("dTEC (TECU)")
     
 
-    axes[1].set_xlim(0, 24)
-
-    axes[1].set_xticks(np.arange(0, 25, 3))
-    axes[1].set_xlabel("Time (UTC, hours)")
-    axes[1].set_ylim(LAT_RANGE)
-    axes[1].xaxis.set_minor_locator(ticker.MultipleLocator(1))
-    axes[1].grid(True, which='major', linestyle=":", alpha=0.4)
-    axes[1].grid(True, which='minor', linestyle=":", alpha=0.2) # Grid mais suave para os minor ticks
+#     # --- Bottom: Latitud ---
     
-    # plt.colorbar(im_lon, ax=axes[1]).set_label("dTEC (TECU)")
-    plt.colorbar(im_lat, ax=axes[1]).set_label("dTEC (TECU)")
-
-    if out_path is None:
-        out_path = dtec_keogram_figs_dir() / f"keogram_{year}{doy:03d}_{resolution}.mpl.png"
+#     im_lat = axes[1].imshow(
+#         agg_lat.values, extent=extent_lat, origin="lower", aspect="auto",
+#         cmap=cmap, vmin=-trh, vmax=trh, interpolation="nearest",
+#     )
+#     axes[1].set_ylabel("Latitud, deg")
     
-    plt.savefig(out_path, dpi=dpi)
-    plt.close(fig)
-    print(f"Image saved: {out_path}")
+
+#     axes[1].set_xlim(0, 24)
+
+#     axes[1].set_xticks(np.arange(0, 25, 3))
+#     axes[1].set_xlabel("Time (UTC, hours)")
+#     axes[1].set_ylim(LAT_RANGE)
+#     axes[1].xaxis.set_minor_locator(ticker.MultipleLocator(1))
+#     axes[1].grid(True, which='major', linestyle=":", alpha=0.4)
+#     axes[1].grid(True, which='minor', linestyle=":", alpha=0.2) # Grid mais suave para os minor ticks
+    
+#     # plt.colorbar(im_lon, ax=axes[1]).set_label("dTEC (TECU)")
+#     plt.colorbar(im_lat, ax=axes[1]).set_label("dTEC (TECU)")
+
+#     if out_path is None:
+#         out_path = dtec_keogram_figs_dir() / f"keogram_{year}{doy:03d}_{resolution}.mpl.png"
+    
+#     plt.savefig(out_path, dpi=dpi)
+#     plt.close(fig)
+#     print(f"Image saved: {out_path}")
     
 
 
@@ -458,6 +459,8 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
                        linewidth=storm_linewidth, alpha=storm_alpha,
                        zorder=3, label='Storms')
 
+    for y in (-50, -60):
+        axes[0].axhline(y, color="lime", linewidth=1., linestyle="--", zorder=4)
     # --- Bottom: Latitud ---
 
     im_lat = axes[1].imshow(
@@ -488,6 +491,9 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
         # cb_s = fig.colorbar(storms_data["sm"], ax=axes,
         #                     location='right', shrink=0.6, pad=0.02)
         # cb_s.set_label("min cloud-top T (°C)")
+    
+    for y in (-20, -30):
+        axes[1].axhline(y, color="lime", linewidth=1.2, linestyle="--", zorder=4)
 
     if out_path is None:
         out_path = dtec_keogram_figs_dir() / f"keogram_{year}{doy:03d}_{resolution}.mpl.png"
@@ -515,49 +521,7 @@ def parse_arguments():
 # ==========================================
 # 5. Entry points
 # ==========================================
-# def main_build(year, doy, resolution="low", dtec_col="dtec_10min"):
-#     """
-#     Stage 1 — aggregate all station parquets into TWO NetCDF grids
-#     (one for latitude, one for longitude).
-#     """
-#     # Resolution in degrees per pixel
 
-#     resolutions = {
-#         "low": 0.1,
-#         "high": 0.05,
-#         "veryhigh": 0.025,
-#         "ultra": 0.005}
-    
-#     deg_per_px = resolutions.get(resolution, 0.1)
-    
-#     plot_height_lat = int((LAT_RANGE[1] - LAT_RANGE[0]) / deg_per_px)
-#     plot_height_lon = int((LON_RANGE[1] - LON_RANGE[0]) / deg_per_px)
-
-#     ipp_folder      = dtec_ipp_dir(year, doy)
-#     keograms_folder = dtec_keogram_dir(year, doy)
-#     parquet_files   = sorted(Path(ipp_folder).glob(f"*_dtecIPP_{year}{doy}.parquet"))
-
-#     if not parquet_files:
-#         print(f"No IPP files found in {ipp_folder}")
-#         return
-
-#     print(f"Found {len(parquet_files)} station files. Aggregating...")
-
-#     # --- Latitude keogram ---
-#     print("Building lat keogram...")
-#     agg_lat = build_keogram_grid(
-#         parquet_files, y_col="lts", y_range=LAT_RANGE,
-#         plot_width=5760, plot_height=plot_height_lat, dtec_col = DTEC_COL
-#     )
-#     save_grid(agg_lat, keograms_folder / f"keogram_lat_{year}_{doy:03d}_{resolution}.nc")
-
-#     # --- Longitude keogram ---
-#     print("Building lon keogram...")
-#     agg_lon = build_keogram_grid(
-#         parquet_files, y_col="lns", y_range=LON_RANGE,
-#         plot_width=5760, plot_height=plot_height_lon, dtec_col = DTEC_COL
-#     )
-#     save_grid(agg_lon, keograms_folder / f"keogram_lon_{year}_{doy:03d}_{resolution}.nc")
 
 def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=False):
     """
@@ -622,34 +586,6 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=Fal
         save_grid(agg_lon, lon_path)
 
 
-# def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
-#               use_matplotlib: bool = False):
-#     """
-#     Stage 2 — load both saved grids and export their PNGs.
-
-#     Parameters
-#     ----------
-#     use_matplotlib : bool
-#         If True, combines lat and lon into a single two-panel figure
-#         (with axes, colorbar, labels). If False, exports two separate
-#         raw datashader images (faster, no axes).
-#     """
-#     keogram_folder = dtec_keogram_dir(year, doy)
-#     nc_lat = keogram_folder / f"keogram_lat_{year}_{doy:03d}_{resolution}.nc"
-#     nc_lon = keogram_folder / f"keogram_lon_{year}_{doy:03d}_{resolution}.nc"
-
-#     if not nc_lat.exists() or not nc_lon.exists():
-#         print(f"Grids not found. Run main_build() first.")
-#         return
-
-#     if use_matplotlib:
-#         mpl_cmap = "seismic_r" if cmap is cc.coolwarm else cmap
-#         # plot_keograms_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap)
-#         plot_keograms_storm_mpl(nc_lat, nc_lon, trh=trh, cmap=mpl_cmap, plot_storms = True)
-#     else:
-#         plot_keogram(nc_lat, trh=trh, cmap=cmap)
-#         plot_keogram(nc_lon, trh=trh, cmap=cmap)
-
 def main_plot(year, doy, resolution="low", trh=0.5, cmap=cc.coolwarm,
               use_matplotlib: bool = False, smooth_size: int = None):
     """
@@ -689,19 +625,19 @@ if __name__ == "__main__":
     LAT_RANGE = (-60.01,  60.01)    # 120° span
     LON_RANGE = (-120.01, -19.99)   # 100° span (Americas)
 
-    LAT_RANGE = (-30.01,  -16.99)    # 120° span
+    LAT_RANGE = (-32.01,  -16.99)    # 120° span
     LON_RANGE = (-65.01, -39.99)   # 100° span (Americas)
     # TIME_RANGE = (0, 24)
 
     # LAT_RANGE = (-25.0,  -20.0)    # 120° span
     # LON_RANGE = (-60, -50.0)   # 100° span (Americas)
-    DTEC_COL = "dtec_10min"
+    DTEC_COL = "dtec_15min"
     movavg = int(re.findall(r'\d+', DTEC_COL)[0])
 
     RUN_MANUALLY = True
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2021, 300
+        year, doy = 2025, 298
 
         # resolution = 'high'
         resolution = 'ultra'
