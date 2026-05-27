@@ -150,7 +150,7 @@ def load_window(
         )
 
     out = out.reset_index(drop=True)
-    out["pair"] = out["station"].astype(str) + " · PRN " + out[PRN_COL].astype(str)
+    out["pair"] = out["station"].astype(str) + " · " + out[PRN_COL].astype(str)
     return out
 
 
@@ -205,79 +205,101 @@ def select_pairs(
 
 
 # ==========================================================================
-# 3a. Time-series scatter (X = time, one series per receiver-PRN pair)
+# 3a. dTEC line stack (X = time, one offset line per receiver-PRN pair)
 # ==========================================================================
-def plot_pairs_scatter(
+def plot_pairs_lines(
     df: pd.DataFrame,
     chosen_pairs: list,
     year: int,
     doy: int,
-    y_col: str = "dtec_15min",     # what goes on Y: "dtec_*" | LAT_COL | LON_COL
-    trh: float | None = None,      # symmetric y-limit (only used for dtec)
+    dtec_col: str = "dtec_15min",
+    offset: float = 1.0,           # vertical offset (TECU) between successive pairs
+    trh: float | None = None,      # optional symmetric clip applied per curve
     cmap_name: str = "tab20",
-    s: float = 10.0,
+    lw: float = 1.0,
     out_path: Path | None = None,
     dpi: int = 300,
 ):
     """
-    Draw the scatter. X axis is UTC time (decimal hours); Y axis defaults to
-    dTEC but can be latitude or longitude to inspect the geometry of each pass.
-    Every receiver-PRN pair gets its own color (and the same color is reused
-    across panels if you extend this later).
+    Stacked LINE plot of dTEC, one line per receiver-PRN pair, with each
+    baseline shifted vertically by `offset` TECU (seismic-style cascade).
+
+    X is UTC time (decimal hours). The order of `chosen_pairs` defines the
+    vertical stacking from bottom up. A thin grey reference line marks each
+    pair's zero, the pair name is shown as the y-tick at its baseline, and a
+    `offset`-TECU scale bar is drawn in the upper-left corner.
     """
+    if offset <= 0:
+        raise ValueError(f"offset must be > 0 TECU (got {offset}).")
+
     movavg = (
-        int(re.findall(r"\d+", y_col)[0]) if re.search(r"\d", y_col) else None
+        int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
     )
     cmap = plt.get_cmap(cmap_name)
     colors = [cmap(i % cmap.N) for i in range(len(chosen_pairs))]
 
-    fig, ax = plt.subplots(figsize=(14, 7), constrained_layout=True)
+    # height grows with the number of pairs so labels don't collide
+    fig_h = max(6.0, 0.45 * len(chosen_pairs) + 3.0)
+    fig, ax = plt.subplots(figsize=(14, fig_h), constrained_layout=True)
 
-    for color, pair in zip(colors, chosen_pairs):
+    baselines = []
+    for i, (color, pair) in enumerate(zip(colors, chosen_pairs)):
         sub = df[df["pair"] == pair].sort_values("t_hours")
-        ax.scatter(
-            sub["t_hours"], sub[y_col],
-            s=s, color=color, label=pair,
-            edgecolors="none", alpha=0.85, zorder=3,
-        )
-
-    # --- Y axis ---
-    if y_col == LAT_COL:
-        ax.set_ylabel("IPP latitude, deg")
-    elif y_col == LON_COL:
-        ax.set_ylabel("IPP longitude, deg")
-    else:
-        ax.set_ylabel("dTEC (TECU)")
-        ax.axhline(0.0, color="0.5", linewidth=0.8, linestyle="-", zorder=1)
+        y = sub[dtec_col].astype(float)
         if trh is not None:
-            ax.set_ylim(-trh, trh)
+            y = y.clip(lower=-trh, upper=trh)
+        baseline = i * offset
+        baselines.append(baseline)
+        # pair's own zero
+        ax.axhline(baseline, color="0.85", linewidth=0.6, zorder=1)
+        ax.plot(sub["t_hours"], y + baseline,
+                color=color, linewidth=lw, zorder=3)
+
+    # --- Y axis: pair names at each baseline (no TECU ticks) ---
+    ax.set_yticks(baselines)
+    ax.set_yticklabels(chosen_pairs, fontsize=8)
+    bot_pad = 0.6 * offset
+    top_pad = 1.4 * offset      # leaves room for the scale bar
+    ax.set_ylim(baselines[0] - bot_pad, baselines[-1] + top_pad)
 
     # --- X axis (time) ---
-    h0 = float(df["t_hours"].min())
-    h1 = float(df["t_hours"].max())
+    sel = df["pair"].isin(chosen_pairs)
+    h0 = float(df.loc[sel, "t_hours"].min())
+    h1 = float(df.loc[sel, "t_hours"].max())
     ax.set_xlim(h0, h1)
     ax.set_xlabel("Time (UTC, hours)")
     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
     ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
-    ax.grid(True, which="major", linestyle=":", alpha=0.4)
-    ax.grid(True, which="minor", linestyle=":", alpha=0.2)
+    ax.grid(True, which="major", axis="x", linestyle=":", alpha=0.4)
+    ax.grid(True, which="minor", axis="x", linestyle=":", alpha=0.2)
+
+    # --- offset scale bar (length = `offset` TECU) ---
+    span = h1 - h0
+    x_bar = h0 + 0.015 * span
+    cap = 0.004 * span
+    y_bot = baselines[-1] + 0.25 * offset
+    y_top = y_bot + offset
+    ax.plot([x_bar, x_bar], [y_bot, y_top],
+            color="0.15", linewidth=2.0, zorder=4)
+    ax.plot([x_bar - cap, x_bar + cap], [y_bot, y_bot],
+            color="0.15", linewidth=2.0, zorder=4)
+    ax.plot([x_bar - cap, x_bar + cap], [y_top, y_top],
+            color="0.15", linewidth=2.0, zorder=4)
+    ax.text(x_bar + 2 * cap, (y_bot + y_top) / 2, f"{offset:g} TECU",
+            fontsize=8, va="center", ha="left", color="0.15")
 
     title = (
-        f"dTEC scatter by receiver-PRN — {year} DOY {doy:03d}"
-        f"  |  {len(chosen_pairs)} pair(s)"
+        f"dTEC line stack by receiver-PRN — {year} DOY {doy:03d}"
+        f"  |  {len(chosen_pairs)} pair(s)  |  offset {offset:g} TECU"
     )
     if movavg is not None:
         title += f"  |  {movavg}-min moving average"
     ax.set_title(title)
 
-    ncol = 1 if len(chosen_pairs) <= 16 else 2
-    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5),
-              fontsize=8, ncol=ncol, frameon=False, title="receiver · PRN")
-
     if out_path is None:
         out_path = (
             Path(dtec_keogram_figs_dir())
-            / f"scatter_{year}{doy:03d}_pairs.png"
+            / f"linestack_{year}{doy:03d}_pairs.png"
         )
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -297,104 +319,62 @@ def plot_pairs_trajectory(
     year: int,
     doy: int,
     dtec_col: str = "dtec_15min",
-    color_by: str = "dtec",        # "dtec" (shared cbar) | "pair" (categorical + legend)
-    trh: float | None = None,      # symmetric dTEC limit (color_by="dtec")
-    cmap_name: str = "tab20",      # categorical cmap (color_by="pair")
-    dtec_cmap: str = "seismic",    # continuous cmap (color_by="dtec")
+    trh: float | None = None,      # symmetric dTEC color limit
+    cmap: str = "seismic_r",
     s: float = 12.0,
     out_path: Path | None = None,
     dpi: int = 300,
 ):
     """
-    Two stacked panels sharing the time (X) axis, mirroring the keogram figure:
+    Two stacked panels sharing the time (X) axis (same layout as the keogram):
         top    -> IPP longitude vs time
         bottom -> IPP latitude  vs time
-
-    Each receiver-PRN pair is one curve in BOTH panels, drawn in time order so
-    its longitude/latitude evolution reads as a trajectory. The grouping key is
-    the (receiver, PRN) pair — the same PRN seen by two receivers gives two
-    distinct curves, never merged.
-
-      - color_by="pair" : each pair has its own color (consistent across panels)
-                          with a single shared legend.
-      - color_by="dtec" : every point colored by dTEC on a shared colorbar.
+ 
+    Each point is colored by its dTEC on a shared colorbar. The receiver-PRN
+    identity is preserved by the upstream selection (`chosen_pairs`) — the
+    same PRN seen by two receivers contributes two distinct sets of points,
+    never merged.
     """
-    movavg = (
-        int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
+    sub = df.loc[df["pair"].isin(chosen_pairs)]
+ 
+    vmax = trh if trh is not None else float(np.nanmax(np.abs(sub[dtec_col])))
+
+    
+    norm = mpl.colors.Normalize(vmin=-vmax, vmax=vmax)
+ 
+    fig, (ax_lon, ax_lat) = plt.subplots(
+        2, 1, figsize=(14, 9), constrained_layout=True, sharex=True,
     )
+    
+    w     = np.clip(np.abs(sub[dtec_col]) / vmax, 0.0, 1.0)
+    # alpha = 0.10 + 0.90 * w        # 0.15 (fraco, quase invisível) -> 1.0 (forte)
+    gamma  = 2.0                            # 1 = linear, >1 = penaliza mais os fracos
+    alpha = 0.10 + 0.90 * (w ** gamma)
 
-    fig, axes = plt.subplots(2, 1, figsize=(14, 9),
-                             constrained_layout=True, sharex=True)
-
-    def _draw(ax, y_col, color, sub):
-        ax.plot(sub["t_hours"], sub[y_col],
-                color=color if color_by == "pair" else "0.6",
-                linewidth=0.7, alpha=0.6, zorder=2)
-
-    if color_by == "pair":
-        cmap = plt.get_cmap(cmap_name)
-        colors = [cmap(i % cmap.N) for i in range(len(chosen_pairs))]
-        for color, pair in zip(colors, chosen_pairs):
-            sub = df[df["pair"] == pair].sort_values("t_hours")
-            # top: longitude
-            _draw(axes[0], LON_COL, color, sub)
-            axes[0].scatter(sub["t_hours"], sub[LON_COL], color=color, s=s,
-                            edgecolors="none", alpha=0.9, label=pair, zorder=3)
-            # bottom: latitude
-            _draw(axes[1], LAT_COL, color, sub)
-            axes[1].scatter(sub["t_hours"], sub[LAT_COL], color=color, s=s,
-                            edgecolors="none", alpha=0.9, zorder=3)
-
-        ncol = 1 if len(chosen_pairs) <= 18 else 2
-        axes[0].legend(loc="center left", bbox_to_anchor=(1.01, -0.05),
-                       fontsize=8, ncol=ncol, frameon=False,
-                       title="receiver · PRN")
-
-    elif color_by == "dtec":
-        vmax = trh if trh is not None else float(
-            np.nanmax(np.abs(df.loc[df["pair"].isin(chosen_pairs), dtec_col]))
-        )
-        norm = mpl.colors.Normalize(vmin=-vmax, vmax=vmax)
-        cmap = plt.get_cmap(dtec_cmap)
-        for pair in chosen_pairs:
-            sub = df[df["pair"] == pair].sort_values("t_hours")
-            # pure scatter (no connecting line); color encodes dTEC
-            axes[0].scatter(sub["t_hours"], sub[LON_COL], c=sub[dtec_col],
-                            cmap=cmap, norm=norm, s=s, edgecolors="none", zorder=3)
-            axes[1].scatter(sub["t_hours"], sub[LAT_COL], c=sub[dtec_col],
-                            cmap=cmap, norm=norm, s=s, edgecolors="none", zorder=3)
-        sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
-        sm.set_array([])
-        cb = fig.colorbar(sm, ax=axes, location="right", shrink=0.7, pad=0.02)
-        cb.set_label("dTEC (TECU)")
-    else:
-        raise ValueError(f"Unknown color_by: {color_by!r} (use 'pair' or 'dtec').")
-
-    # --- Top: longitude ---
-    axes[0].set_ylabel("IPP longitude, deg")
-    title = (
+    ax_lon.scatter(sub["t_hours"], sub[LON_COL], c=sub[dtec_col], s=abs(sub[dtec_col])*50,
+                   cmap=cmap, norm=norm,  edgecolors="none", alpha=alpha)
+    ax_lat.scatter(sub["t_hours"], sub[LAT_COL], c=sub[dtec_col], s=abs(sub[dtec_col])*50,
+                   cmap=cmap, norm=norm,  edgecolors="none", alpha=alpha)
+ 
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap))
+    sm.set_array([])
+    fig.colorbar(sm, ax=(ax_lon, ax_lat), location="right",
+                 shrink=1.0, pad=0.02, label="dTEC (TECU)")
+ 
+    ax_lon.set_ylabel("IPP longitude, deg")
+    ax_lat.set_ylabel("IPP latitude, deg")
+    ax_lat.set_xlabel("Time (UTC, hours)")
+    ax_lat.set_xlim(float(sub["t_hours"].min()), float(sub["t_hours"].max()))
+    ax_lat.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax_lat.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
+    for ax in (ax_lon, ax_lat):
+        ax.grid(True, linestyle=":", alpha=0.4)
+ 
+    ax_lon.set_title(
         f"IPP trajectories by receiver-PRN — {year} DOY {doy:03d}"
         f"  |  {len(chosen_pairs)} pair(s)"
     )
-    if movavg is not None:
-        title += f"  |  {movavg}-min moving average"
-    axes[0].set_title(title)
-    axes[0].grid(True, which="major", linestyle=":", alpha=0.4)
-    axes[0].grid(True, which="minor", linestyle=":", alpha=0.2)
-
-    # --- Bottom: latitude ---
-    axes[1].set_ylabel("IPP latitude, deg")
-    axes[1].set_xlabel("Time (UTC, hours)")
-    axes[1].grid(True, which="major", linestyle=":", alpha=0.4)
-    axes[1].grid(True, which="minor", linestyle=":", alpha=0.2)
-
-    # --- shared X (time) ---
-    h0 = float(df.loc[df["pair"].isin(chosen_pairs), "t_hours"].min())
-    h1 = float(df.loc[df["pair"].isin(chosen_pairs), "t_hours"].max())
-    axes[1].set_xlim(h0, h1)
-    axes[1].xaxis.set_major_locator(ticker.MultipleLocator(1))
-    axes[1].xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
-
+ 
     if out_path is None:
         out_path = (
             Path(dtec_keogram_figs_dir())
@@ -406,6 +386,7 @@ def plot_pairs_trajectory(
     plt.close(fig)
     print(f"Image saved: {out_path}")
     return out_path
+
 
 
 # ==========================================================================
@@ -425,14 +406,16 @@ def parse_arguments():
     parser.add_argument("--time", type=float, nargs=2, default=(0.0, 24.0),
                         metavar=("H_START", "H_END"))
     parser.add_argument("--dtec-col", type=str, default="dtec_15min")
-    parser.add_argument("--y-col", type=str, default=None,
-                        help="Y axis column (defaults to --dtec-col).")
+    parser.add_argument("--offset", type=float, default=1.0,
+                        help="Vertical offset in TECU between successive pairs "
+                             "in the line stack (timeseries kind).")
     parser.add_argument("--mode", choices=["all", "topN", "list"], default="topN")
     parser.add_argument("--n", type=int, default=12)
     parser.add_argument("--trh", type=float, default=None)
     parser.add_argument("--kind", choices=["timeseries", "trajectory"],
                         default="timeseries",
-                        help="timeseries = time x dTEC; trajectory = lon x lat arcs.")
+                        help="timeseries = dTEC line stack; "
+                             "trajectory = lon/lat vs time (two panels).")
     parser.add_argument("--color-by", choices=["dtec", "pair"], default="dtec",
                         help="Trajectory coloring (ignored for timeseries).")
     return parser.parse_args()
@@ -445,15 +428,14 @@ def run(
     year, doy,
     lat_range, lon_range, time_range,
     dtec_col="dtec_15min",
-    kind="timeseries",            # "timeseries" | "trajectory"
-    y_col=None,                   # timeseries only
+    kind="timeseries",            # "timeseries" (dTEC line stack) | "trajectory"
+    offset=1.0,                   # timeseries only: vertical offset (TECU)
     color_by="dtec",              # trajectory only: "dtec" | "pair"
     mode="topN", n=12, pairs=None, min_points=5,
     trh=None,
     stations=None,
     out_path=None,
 ):
-    y_col = y_col or dtec_col
     df = load_window(
         year, doy,
         lat_range=lat_range, lon_range=lon_range, time_range=time_range,
@@ -468,12 +450,12 @@ def run(
     if kind == "trajectory":
         return plot_pairs_trajectory(
             df, chosen, year=year, doy=doy,
-            dtec_col=dtec_col, color_by=color_by, trh=trh, out_path=out_path,
+            dtec_col=dtec_col,  trh=trh, out_path=out_path,
         )
     elif kind == "timeseries":
-        return plot_pairs_scatter(
+        return plot_pairs_lines(
             df, chosen, year=year, doy=doy,
-            y_col=y_col, trh=trh, out_path=out_path,
+            dtec_col=dtec_col, offset=offset, trh=trh, out_path=out_path,
         )
     else:
         raise ValueError(f"Unknown kind: {kind!r} (use 'timeseries' or 'trajectory').")
@@ -488,33 +470,47 @@ if __name__ == "__main__":
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
 
-        year, doy = 2025, 298
+        year, doy = 2021, 296
 
         # --- spatio-temporal cut --------------------------------------------
-        LAT_RANGE  = (-32.01, -16.99)     # deg
-        LON_RANGE  = (-65.01, -39.99)     # deg
-        TIME_RANGE = (12.0, 20.0)         # UTC decimal hours
+        LAT_RANGE  = (-30.01, -19.99)     # deg
+        LON_RANGE  = (-60.01, -39.99)     # deg
+        TIME_RANGE = (16, 18)         # UTC decimal hours
 
-        DTEC_COL = "dtec_15min"
+        DTEC_COL = "dtec_10min"
 
         # --- which pairs to draw --------------------------------------------
         # "topN" -> longest N passes; "all" -> everything; "list" -> explicit
         #
-        # kind="trajectory" -> each receiver-PRN pair is its OWN lon x lat arc
-        #                      (same PRN from different receivers = different arc)
-        # kind="timeseries" -> time x dTEC, one series per pair
+        # kind="timeseries" -> dTEC LINE STACK, one curve per pair offset
+        #                      vertically by `offset` TECU from the previous
+        # kind="trajectory" -> two panels: lon (top) & lat (bottom) vs time,
+        #                      scatter colored by dTEC
+        # run(
+        #     year=year, doy=doy,
+        #     lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+        #     dtec_col=DTEC_COL,
+        #     kind="timeseries",     # dTEC line stack with offsets
+        #     offset=.05,            # TECU between successive pairs
+        #     # kind="trajectory",   # uncomment for lon/lat vs time panels
+        #     # color_by="dtec",     # trajectory only
+        #     mode="topN", n=30, min_points=10,
+        #     # mode="list",
+        #     # pairs=[("ALAR", 7), ("ALAR", 30), ("BRAZ", 9)],
+        # )
+        
         run(
             year=year, doy=doy,
             lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
             dtec_col=DTEC_COL,
-            kind="trajectory",     # two panels: lon (top) & lat (bottom) vs time
-            # kind="timeseries",     
-            color_by="dtec",       # scatter colored by dTEC (seismic colorbar)
-            mode="topN", n=12, min_points=10,
-            trh=0.201,               # set None to autoscale
+            kind="trajectory",   # uncomment for lon/lat vs time panels
+            color_by="dtec",     # trajectory only
+            mode="topN", n=1000, min_points=10,
+            trh=0.301,               # symmetric clip per curve (set None to disable)
             # mode="list",
             # pairs=[("ALAR", 7), ("ALAR", 30), ("BRAZ", 9)],
         )
+        
     else:
         print("Running in CLI Mode...")
         args = parse_arguments()
@@ -523,6 +519,6 @@ if __name__ == "__main__":
             lat_range=tuple(args.lat), lon_range=tuple(args.lon),
             time_range=tuple(args.time),
             dtec_col=args.dtec_col, kind=args.kind,
-            y_col=args.y_col, color_by=args.color_by,
+            offset=args.offset, color_by=args.color_by,
             mode=args.mode, n=args.n, trh=args.trh,
         )
