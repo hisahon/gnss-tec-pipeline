@@ -442,7 +442,7 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
     )
 
     axes[0].set_title(
-        f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg}-min moving average  |  "
+        f"dTEC Keogram — {year} DOY {doy:03d}  |  {movavg_srt}-min moving average  |  "
         f"resolution: {resolutions.get(resolution, 0.1)} deg x 15 sec"
     )
     axes[0].set_ylabel("Longitud, deg")
@@ -632,7 +632,7 @@ if __name__ == "__main__":
     # LAT_RANGE = (-25.0,  -20.0)    # 120° span
     # LON_RANGE = (-60, -50.0)   # 100° span (Americas)
     DTEC_COL = "dtec_15min"
-    movavg = int(re.findall(r'\d+', DTEC_COL)[0])
+    movavg_srt = int(re.findall(r'\d+', DTEC_COL)[0])
 
     RUN_MANUALLY = True
     if RUN_MANUALLY:

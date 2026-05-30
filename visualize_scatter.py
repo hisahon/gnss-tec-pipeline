@@ -22,6 +22,7 @@ import argparse
 import re
 from pathlib import Path
 
+
 import numpy as np
 import pandas as pd
 import duckdb
@@ -30,10 +31,11 @@ import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import matplotlib.dates as mdates
+
 
 # Import custom modules (same project layout as visualize_keo.py)
-from shared.config import dtec_ipp_dir, dtec_keogram_figs_dir
+from shared.config import dtec_ipp_dir, dtec_keogram_figs_dir, storms_SouthAmerica
+from shared.storm_tracking import plot_storms_tracked
 
 
 # ==========================================================================
@@ -58,38 +60,50 @@ def _station_from_path(path: Path) -> str:
     return path.name.split("_dtecIPP_")[0]
 
 
+def _detect_dtec_col(file: str, candidates: list[str] | None = None) -> str:
+    """
+    Return the first dtec-like column found in the parquet schema.
+    Raises ValueError if none is found.
+    """
+    if candidates is None:
+        candidates = ["dtec_5min", "dtec_10min", "dtec_15min", "dtec_30min"]
+
+    con = duckdb.connect()
+    available = set(con.execute(
+        "SELECT * FROM read_parquet($file) LIMIT 0",
+        {"file": file},
+    ).df().columns)
+    con.close()
+
+
+    for col in candidates:
+        if col in available:
+            return col
+
+    # fallback: any column whose name starts with "dtec_"
+    dtec_cols = sorted(c for c in available if c.startswith("dtec_"))
+    if dtec_cols:
+        return dtec_cols[0]
+
+    raise ValueError(
+        f"No dtec column found in {file}.\n"
+        f"Available columns: {sorted(available)}"
+    )
+
+
 def load_window(
     year: int,
     doy: int,
     lat_range: tuple,
     lon_range: tuple,
-    time_range: tuple,          # (h_start, h_end) in UTC decimal hours
-    dtec_col: str = "dtec_15min",
+    time_range: tuple,
+    dtec_col: str | None = None,        # None → auto-detect
     stations: list | None = None,
 ) -> pd.DataFrame:
-    """
-    Read every station parquet for (year, doy) with DuckDB, keep only the IPPs
-    inside the lat/lon box and the time window, and tag each row with its
-    receiver name (parsed from the file path).
-
-    Why DuckDB and not pandas/dask here:
-      - the *input* is the whole day for many stations, the *output* is a tiny
-        cut. DuckDB applies the lat/lon predicate as a parquet pushdown
-        (skipping row groups via min/max zonemaps) and projects only the
-        needed columns, so we never materialise the full day in Python RAM.
-      - dask would parallelise the read but still has to scan everything and
-        offers no win once the result fits in memory, plus parsing the station
-        from the filename is clumsier than DuckDB's `filename=true`.
-
-    Returns a single DataFrame with columns:
-        [TIME_COL, LAT_COL, LON_COL, PRN_COL, dtec_col, "t_hours",
-         "station", "pair"]
-    """
     ipp_folder = Path(dtec_ipp_dir(year, doy))
     files = sorted(ipp_folder.glob(f"*_dtecIPP_{year}{doy}.parquet"))
     if not files:
         raise FileNotFoundError(f"No IPP files found in {ipp_folder}")
-
     if stations is not None:
         wanted = set(stations)
         files = [f for f in files if _station_from_path(f) in wanted]
@@ -98,13 +112,15 @@ def load_window(
                 f"None of the requested stations {sorted(wanted)} were found."
             )
 
+    # --- auto-detect dtec column from the first file's schema --------------
+    if dtec_col is None:
+        dtec_col = _detect_dtec_col(str(files[0]))
+        print(f"[load] dtec column auto-detected: '{dtec_col}'")
+
     lat_lo, lat_hi = sorted(lat_range)
     lon_lo, lon_hi = sorted(lon_range)
     file_list = [str(f) for f in files]
 
-    # Spatial cut + dropna + station tag are pushed down to DuckDB. The
-    # time cut is done afterwards in pandas on the already-small result, to
-    # stay robust to tz-aware vs tz-naive timestamps across files.
     con = duckdb.connect()
     query = f"""
         SELECT
@@ -134,13 +150,12 @@ def load_window(
             "Widen the box or check the ranges."
         )
 
-    # --- time cut + decimal UTC hour (pandas, on the small spatial cut) ---
+    # --- time cut + decimal UTC hour --------------------------------------
     t = pd.to_datetime(out[TIME_COL])
     if getattr(t.dt, "tz", None) is not None:
         t = t.dt.tz_convert(None)
     out[TIME_COL] = t
     out["t_hours"] = t.dt.hour + t.dt.minute / 60.0 + t.dt.second / 3600.0
-
     h0, h1 = time_range
     out = out[out["t_hours"].between(h0, h1)]
     if out.empty:
@@ -199,8 +214,8 @@ def select_pairs(
         raise ValueError("No pairs survived the selection criteria.")
 
     print(f"[select] mode={mode} -> {len(chosen)} pair(s):")
-    for p in chosen:
-        print(f"    {p:<28s}  {int(counts.get(p, 0)):>5d} pts")
+    # for p in chosen:
+    #     print(f"    {p:<28s}  {int(counts.get(p, 0)):>5d} pts")
     return chosen
 
 
@@ -313,6 +328,8 @@ def plot_pairs_lines(
 # 3b. Two-panel trajectory (top: time x lon, bottom: time x lat)
 #     one curve per receiver-PRN pair  — same layout as the keogram figure
 # ==========================================================================
+
+
 def plot_pairs_trajectory(
     df: pd.DataFrame,
     chosen_pairs: list,
@@ -322,6 +339,7 @@ def plot_pairs_trajectory(
     trh: float | None = None,      # symmetric dTEC color limit
     cmap: str = "seismic_r",
     s: float = 12.0,
+    plot_storms: bool = True,      # overlay storm centroids as reference
     out_path: Path | None = None,
     dpi: int = 300,
 ):
@@ -329,38 +347,96 @@ def plot_pairs_trajectory(
     Two stacked panels sharing the time (X) axis (same layout as the keogram):
         top    -> IPP longitude vs time
         bottom -> IPP latitude  vs time
- 
-    Each point is colored by its dTEC on a shared colorbar. The receiver-PRN
-    identity is preserved by the upstream selection (`chosen_pairs`) — the
-    same PRN seen by two receivers contributes two distinct sets of points,
-    never merged.
-    """
-    sub = df.loc[df["pair"].isin(chosen_pairs)]
- 
-    vmax = trh if trh is not None else float(np.nanmax(np.abs(sub[dtec_col])))
 
-    
+    Each point is colored by its dTEC on a shared colorbar. Optionally overlays
+    storm centroids as a light, neutral reference layer (position only — the
+    temperature analysis lives in the dedicated storm figure).
+    """
+    # --- Storm reference marker styling --------------------------------
+    storm_marker        = "o"
+    storm_marker_s      = 25.
+    storm_marker_alpha  = 1.
+
+    sub = df.loc[df["pair"].isin(chosen_pairs)]
+
+    vmax = trh if trh is not None else float(np.nanmax(np.abs(sub[dtec_col])))
     norm = mpl.colors.Normalize(vmin=-vmax, vmax=vmax)
- 
+
+    # --- Storm centroids: load, clip to day + box (position only) ------
+    storms_data = None
+    if plot_storms:
+        print("[storms] ON — centroid reference markers enabled. "
+              "To turn OFF, call with plot_storms=False.")
+        df_storms = pd.read_parquet(storms_SouthAmerica(), engine="fastparquet")
+
+        # clip to the target day
+        t0 = pd.Timestamp(year=year, month=1, day=1) + pd.Timedelta(days=doy - 1)
+        t1 = t0 + pd.Timedelta(days=1)
+        df_storms = df_storms[
+            (df_storms['datetime'] >= t0) & (df_storms['datetime'] < t1)
+        ].copy()
+
+        # clip to the lat/lon box (same global window used for the IPPs, padded)
+        lat_lo, lat_hi = sorted(LAT_RANGE)
+        lon_lo, lon_hi = sorted(LON_RANGE)
+        df_storms = df_storms[
+            df_storms['centroid_lat'].between(lat_lo - 3, lat_hi + 3) &
+            df_storms['centroid_lon'].between(lon_lo - 3, lon_hi + 3)
+        ].copy()
+
+        if not df_storms.empty:
+            dt = pd.to_datetime(df_storms['datetime'])
+            if dt.dt.tz is not None:
+                dt = dt.dt.tz_convert(None)
+            t_hours = (dt - t0).dt.total_seconds().to_numpy() / 3600.0
+
+            storms_data = dict(
+                t=t_hours,
+                lon_c=df_storms['centroid_lon'].to_numpy(),
+                lat_c=df_storms['centroid_lat'].to_numpy(),
+            )
+            print(f"[storms] {len(t_hours)} centroids in window.")
+        else:
+            print("[storms] no storms found for this day.")
+    else:
+        print("[storms] OFF — no centroid markers. "
+              "To turn ON, call with plot_storms=True.")
+
     fig, (ax_lon, ax_lat) = plt.subplots(
         2, 1, figsize=(14, 9), constrained_layout=True, sharex=True,
     )
-    
-    w     = np.clip(np.abs(sub[dtec_col]) / vmax, 0.0, 1.0)
-    # alpha = 0.10 + 0.90 * w        # 0.15 (fraco, quase invisível) -> 1.0 (forte)
-    gamma  = 2.0                            # 1 = linear, >1 = penaliza mais os fracos
-    alpha = 0.10 + 0.90 * (w ** gamma)
 
-    ax_lon.scatter(sub["t_hours"], sub[LON_COL], c=sub[dtec_col], s=abs(sub[dtec_col])*50,
-                   cmap=cmap, norm=norm,  edgecolors="none", alpha=alpha)
-    ax_lat.scatter(sub["t_hours"], sub[LAT_COL], c=sub[dtec_col], s=abs(sub[dtec_col])*50,
-                   cmap=cmap, norm=norm,  edgecolors="none", alpha=alpha)
- 
+    absdtec = np.abs(sub[dtec_col])
+    w      = np.clip(absdtec / vmax, 0.0, 1.0)
+    gamma  = 2.0                            # 1 = linear, >1 = penaliza mais os fracos
+    alpha  = 0.10 + 0.90 * (w ** gamma)
+
+    s = absdtec * 25
+
+    ax_lon.scatter(sub["t_hours"], sub[LON_COL], c=sub[dtec_col], s=s,
+                   cmap=cmap, norm=norm, edgecolors="none", alpha=alpha)
+    ax_lat.scatter(sub["t_hours"], sub[LAT_COL], c=sub[dtec_col], s=s,
+                   cmap=cmap, norm=norm, edgecolors="none", alpha=alpha)
+
+    # --- Storm centroids: neutral reference scatter --------------------
+    if storms_data is not None:
+            ax_lon.scatter(storms_data["t"], storms_data["lon_c"],
+                           marker=storm_marker, s=storm_marker_s,
+                           facecolors="cyan", edgecolors="black",
+                           alpha=storm_marker_alpha, linewidths=1.0,
+                           zorder=4, label="Cold spots positions")
+            ax_lat.scatter(storms_data["t"], storms_data["lat_c"],
+                           marker=storm_marker, s=storm_marker_s,
+                           facecolors="cyan", edgecolors="black",
+                           alpha=storm_marker_alpha, linewidths=1.0,
+                           zorder=4, label="storm centroid")
+            ax_lon.legend(loc="upper right", fontsize=8, framealpha=0.6)
+
     sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap))
     sm.set_array([])
     fig.colorbar(sm, ax=(ax_lon, ax_lat), location="right",
                  shrink=1.0, pad=0.02, label="dTEC (TECU)")
- 
+
     ax_lon.set_ylabel("IPP longitude, deg")
     ax_lat.set_ylabel("IPP latitude, deg")
     ax_lat.set_xlabel("Time (UTC, hours)")
@@ -369,16 +445,17 @@ def plot_pairs_trajectory(
     ax_lat.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
     for ax in (ax_lon, ax_lat):
         ax.grid(True, linestyle=":", alpha=0.4)
- 
+
+    movavg_srt = int(re.findall(r'\d+', dtec_col)[0])
     ax_lon.set_title(
-        f"IPP trajectories by receiver-PRN — {year} DOY {doy:03d}"
+        f"TRAVEL TIME DIAGRAM: {year}-{doy:03d} | MOV. AVG.: {movavg_srt} min"
         f"  |  {len(chosen_pairs)} pair(s)"
     )
- 
+
     if out_path is None:
         out_path = (
-            Path(dtec_keogram_figs_dir())
-            / f"trajectory_{year}{doy:03d}_pairs.png"
+            dtec_keogram_figs_dir()
+            / f"ttd_{year}-{doy:03d}-{TIME_RANGE[0]}-{TIME_RANGE[1]}.png"
         )
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -424,13 +501,14 @@ def parse_arguments():
 # ==========================================================================
 # 5. Entry point: one-shot pipeline
 # ==========================================================================
+
 def run(
     year, doy,
     lat_range, lon_range, time_range,
-    dtec_col="dtec_15min",
-    kind="timeseries",            # "timeseries" (dTEC line stack) | "trajectory"
-    offset=1.0,                   # timeseries only: vertical offset (TECU)
-    color_by="dtec",              # trajectory only: "dtec" | "pair"
+    dtec_col=None,                # None → auto-detected inside load_window
+    kind="timeseries",
+    offset=1.0,
+    color_by="dtec",
     mode="topN", n=12, pairs=None, min_points=5,
     trh=None,
     stations=None,
@@ -441,16 +519,21 @@ def run(
         lat_range=lat_range, lon_range=lon_range, time_range=time_range,
         dtec_col=dtec_col, stations=stations,
     )
+
+    # resolve the actual column name (may have been auto-detected)
+    dtec_col = next(c for c in df.columns if c.startswith("dtec_"))
+
     print(f"[load] {len(df)} IPPs in window | "
           f"{df['station'].nunique()} stations | "
-          f"{df['pair'].nunique()} receiver-PRN pairs")
+          f"{df['pair'].nunique()} receiver-PRN pairs | "
+          f"dtec_col='{dtec_col}'")
 
     chosen = select_pairs(df, mode=mode, n=n, pairs=pairs, min_points=min_points)
 
     if kind == "trajectory":
         return plot_pairs_trajectory(
             df, chosen, year=year, doy=doy,
-            dtec_col=dtec_col,  trh=trh, out_path=out_path,
+            dtec_col=dtec_col, trh=trh, out_path=out_path,
         )
     elif kind == "timeseries":
         return plot_pairs_lines(
@@ -464,53 +547,141 @@ def run(
 # ==========================================================================
 # 6. IDE / CLI entry point
 # ==========================================================================
-if __name__ == "__main__":
 
+
+# if __name__ == "__main__":
+#     RUN_MANUALLY = True
+#     if RUN_MANUALLY:
+#         print("Running in IDE Manual Mode...")
+
+#         # --- Date/time windows to process -----------------------------------
+#         runs = [
+#             (2021, 296, 14, 19),
+#             (2022, 279, 18, 23),
+#             (2022,  97, 16, 21),
+#             (2023, 347, 15, 21),
+#             (2023, 347,  7, 11),
+#             (2023, 348,  0, 10),
+#             (2023, 348, 18, 22),
+#             (2024, 264,  0,  3),
+#             (2024, 264,  9, 15),
+#             (2024, 264, 13, 16),
+#             (2024, 264,  0,  3),
+#             (2024, 264,  9, 22),
+#             (2024, 333,  9, 20),
+#             (2025, 298,  7, 12),
+#             (2025, 298, 18, 21),
+#         ]
+
+#         # --- Spatio-temporal cut --------------------------------------------
+#         LAT_RANGE = (-32.01, -17.99)    # deg
+#         LON_RANGE = (-62.01, -47.99)    # deg
+
+#         # --- Loop over all date/time windows --------------------------------
+#         for tyear, tdoy, tbeg, tend in runs:
+#             TIME_RANGE = (tbeg, tend)
+
+#             out_path = dtec_keogram_figs_dir() / f"ttd_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png"
+#             if out_path.exists():
+#                 print(f"[skip] {out_path.name} already exists.")
+#                 continue
+
+#             print(f"[run ] year={tyear} doy={tdoy} time={tbeg}-{tend}h → {out_path.name}")
+
+#             run(
+#                 year=tyear, doy=tdoy,
+#                 lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+#                 dtec_col=None,          # auto-detect per file
+#                 kind="trajectory",
+#                 color_by="dtec",
+#                 mode="topN", n=500, min_points=10,
+#                 trh=.301,
+#                 out_path=out_path,
+#             )
+
+#     else:
+#         print("Running in CLI Mode...")
+#         args = parse_arguments()
+#         run(
+#             year=args.year, doy=args.doy,
+#             lat_range=tuple(args.lat), lon_range=tuple(args.lon),
+#             time_range=tuple(args.time),
+#             dtec_col=getattr(args, "dtec_col", None),   # None if not passed via CLI
+#             kind=args.kind,
+#             offset=args.offset, color_by=args.color_by,
+#             mode=args.mode, n=args.n, trh=args.trh,
+#         )
+
+# ==========================================================================
+# 6. IDE / CLI entry point
+# ==========================================================================
+if __name__ == "__main__":
     RUN_MANUALLY = True
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
 
-        year, doy = 2021, 296
+        # --- Date/time windows to process -----------------------------------
+        runs = [
+            (2021, 296, 14, 19),
+            (2022, 279, 18, 23),
+            (2022,  97, 16, 21),
+            (2023, 347, 15, 21),
+            (2023, 347,  7, 11),
+            (2023, 348,  0, 10),
+            (2023, 348, 18, 22),
+            (2024, 264,  0,  3),
+            (2024, 264,  9, 15),
+            (2024, 264, 13, 16),
+            (2024, 264,  0,  3),
+            (2024, 264,  9, 22),
+            (2024, 333,  9, 20),
+            (2025, 298,  7, 12),
+            (2025, 298, 18, 21),
+        ]
 
-        # --- spatio-temporal cut --------------------------------------------
-        LAT_RANGE  = (-30.01, -19.99)     # deg
-        LON_RANGE  = (-60.01, -39.99)     # deg
-        TIME_RANGE = (16, 18)         # UTC decimal hours
+        # --- Spatio-temporal cut --------------------------------------------
+        LAT_RANGE = (-32.01, -17.99)    # deg
+        LON_RANGE = (-62.01, -47.99)    # deg
 
-        DTEC_COL = "dtec_10min"
+        # --- Loop over all date/time windows --------------------------------
+        for tyear, tdoy, tbeg, tend in runs:
+            TIME_RANGE = (tbeg, tend)
 
-        # --- which pairs to draw --------------------------------------------
-        # "topN" -> longest N passes; "all" -> everything; "list" -> explicit
-        #
-        # kind="timeseries" -> dTEC LINE STACK, one curve per pair offset
-        #                      vertically by `offset` TECU from the previous
-        # kind="trajectory" -> two panels: lon (top) & lat (bottom) vs time,
-        #                      scatter colored by dTEC
-        # run(
-        #     year=year, doy=doy,
-        #     lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-        #     dtec_col=DTEC_COL,
-        #     kind="timeseries",     # dTEC line stack with offsets
-        #     offset=.05,            # TECU between successive pairs
-        #     # kind="trajectory",   # uncomment for lon/lat vs time panels
-        #     # color_by="dtec",     # trajectory only
-        #     mode="topN", n=30, min_points=10,
-        #     # mode="list",
-        #     # pairs=[("ALAR", 7), ("ALAR", 30), ("BRAZ", 9)],
-        # )
-        
-        run(
-            year=year, doy=doy,
-            lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-            dtec_col=DTEC_COL,
-            kind="trajectory",   # uncomment for lon/lat vs time panels
-            color_by="dtec",     # trajectory only
-            mode="topN", n=1000, min_points=10,
-            trh=0.301,               # symmetric clip per curve (set None to disable)
-            # mode="list",
-            # pairs=[("ALAR", 7), ("ALAR", 30), ("BRAZ", 9)],
-        )
-        
+            # --- Figure 1: TTD (ionosphere) --------------------------------
+            ttd_path = (dtec_keogram_figs_dir()
+                        / f"ttd_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png")
+            if ttd_path.exists():
+                print(f"[skip] {ttd_path.name} already exists.")
+            else:
+                print(f"[run ] {ttd_path.name}")
+                run(
+                    year=tyear, doy=tdoy,
+                    lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+                    dtec_col=None,          # auto-detect per file
+                    kind="trajectory",
+                    color_by="dtec",
+                    mode="topN", n=500, min_points=10,
+                    trh=.301,
+                    out_path=ttd_path,
+                )
+
+            # --- Figure 2: tracked storms (complementary) ------------------
+            storms_path = (dtec_keogram_figs_dir()
+                           / f"storms_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png")
+            if storms_path.exists():
+                print(f"[skip] {storms_path.name} already exists.")
+            else:
+                print(f"[run ] {storms_path.name}")
+                plot_storms_tracked(
+                    year=tyear, doy=tdoy,
+                    lat_range=LAT_RANGE, lon_range=LON_RANGE,
+                    time_range=TIME_RANGE,
+                    max_link_dist_deg=2.0,
+                    max_gap_frames=1,
+                    min_track_len=3,
+                    out_path=storms_path,
+                )
+
     else:
         print("Running in CLI Mode...")
         args = parse_arguments()
@@ -518,7 +689,8 @@ if __name__ == "__main__":
             year=args.year, doy=args.doy,
             lat_range=tuple(args.lat), lon_range=tuple(args.lon),
             time_range=tuple(args.time),
-            dtec_col=args.dtec_col, kind=args.kind,
+            dtec_col=getattr(args, "dtec_col", None),   # None if not passed via CLI
+            kind=args.kind,
             offset=args.offset, color_by=args.color_by,
             mode=args.mode, n=args.n, trh=args.trh,
         )
