@@ -36,6 +36,21 @@ import matplotlib.ticker as ticker
 # Import custom modules (same project layout as visualize_keo.py)
 from shared.config import dtec_ipp_dir, dtec_keogram_figs_dir, storms_SouthAmerica
 from shared.storm_tracking import plot_storms_tracked
+from shared.lightning_spectrogram import lfr_spectrogram, WAV_FREQ_BOUNDS
+
+
+# ==========================================================================
+# 0b. Dedicated output folder for this script's figures
+# ==========================================================================
+def ttd_figs_dir() -> Path:
+    """
+    Output folder for visualize_scatter.py figures only
+    (kept separate from dtec_keogram_figs_dir(), which is used by
+    visualize_keo.py). Created next to it if it doesn't exist yet.
+    """
+    folder = Path(dtec_keogram_figs_dir()).parent / "keograms_TTDs"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
 
 
 # ==========================================================================
@@ -313,7 +328,7 @@ def plot_pairs_lines(
 
     if out_path is None:
         out_path = (
-            Path(dtec_keogram_figs_dir())
+            ttd_figs_dir()
             / f"linestack_{year}{doy:03d}_pairs.png"
         )
     out_path = Path(out_path)
@@ -340,18 +355,29 @@ def plot_pairs_trajectory(
     cmap: str = "seismic_r",
     s: float = 12.0,
     plot_storms: bool = True,      # overlay storm centroids as reference
+    add_spectrogram: bool = True,  # extra panel: LFR wavelet spectrogram
+    lat_range: tuple | None = None,   # falls back to global LAT_RANGE
+    lon_range: tuple | None = None,   # falls back to global LON_RANGE
+    time_range: tuple | None = None,  # falls back to global TIME_RANGE
     out_path: Path | None = None,
     dpi: int = 300,
 ):
     """
-    Two stacked panels sharing the time (X) axis (same layout as the keogram):
-        top    -> IPP longitude vs time
-        bottom -> IPP latitude  vs time
+    Stacked panels sharing the time (X) axis (same layout as the keogram):
+        top     -> IPP longitude vs time
+        middle  -> IPP latitude  vs time
+        bottom  -> lightning flash rate (LFR) wavelet spectrogram
+                   (only when add_spectrogram=True)
 
     Each point is colored by its dTEC on a shared colorbar. Optionally overlays
     storm centroids as a light, neutral reference layer (position only — the
     temperature analysis lives in the dedicated storm figure).
     """
+    # --- resolve effective lat/lon/time window (explicit arg > global) -----
+    eff_lat_range  = lat_range  if lat_range  is not None else LAT_RANGE
+    eff_lon_range  = lon_range  if lon_range  is not None else LON_RANGE
+    eff_time_range = time_range if time_range is not None else TIME_RANGE
+
     # --- Storm reference marker styling --------------------------------
     storm_marker        = "o"
     storm_marker_s      = 25.
@@ -377,8 +403,8 @@ def plot_pairs_trajectory(
         ].copy()
 
         # clip to the lat/lon box (same global window used for the IPPs, padded)
-        lat_lo, lat_hi = sorted(LAT_RANGE)
-        lon_lo, lon_hi = sorted(LON_RANGE)
+        lat_lo, lat_hi = sorted(eff_lat_range)
+        lon_lo, lon_hi = sorted(eff_lon_range)
         df_storms = df_storms[
             df_storms['centroid_lat'].between(lat_lo - 3, lat_hi + 3) &
             df_storms['centroid_lon'].between(lon_lo - 3, lon_hi + 3)
@@ -402,9 +428,16 @@ def plot_pairs_trajectory(
         print("[storms] OFF — no centroid markers. "
               "To turn ON, call with plot_storms=True.")
 
-    fig, (ax_lon, ax_lat) = plt.subplots(
-        2, 1, figsize=(14, 9), constrained_layout=True, sharex=True,
-    )
+    if add_spectrogram:
+        fig, (ax_lon, ax_lat, ax_spec) = plt.subplots(
+            3, 1, figsize=(14, 12), constrained_layout=True, sharex=True,
+            gridspec_kw={"height_ratios": [1, 1, 1]},
+        )
+    else:
+        fig, (ax_lon, ax_lat) = plt.subplots(
+            2, 1, figsize=(14, 9), constrained_layout=True, sharex=True,
+        )
+        ax_spec = None
 
     absdtec = np.abs(sub[dtec_col])
     w      = np.clip(absdtec / vmax, 0.0, 1.0)
@@ -439,11 +472,45 @@ def plot_pairs_trajectory(
 
     ax_lon.set_ylabel("IPP longitude, deg")
     ax_lat.set_ylabel("IPP latitude, deg")
-    ax_lat.set_xlabel("Time (UTC, hours)")
-    ax_lat.set_xlim(float(sub["t_hours"].min()), float(sub["t_hours"].max()))
-    ax_lat.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    ax_lat.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
-    for ax in (ax_lon, ax_lat):
+
+    # --- Panel 3: lightning flash rate (LFR) wavelet spectrogram ----------
+    if add_spectrogram:
+        spec_result = lfr_spectrogram(
+            year, doy,
+            lat_range=eff_lat_range, lon_range=eff_lon_range,
+            time_range=eff_time_range,
+        )
+
+        if spec_result is not None:
+            t_hours_spec, freq, power = spec_result
+
+            cf = ax_spec.contourf(
+                t_hours_spec, freq, power, cmap="nipy_spectral", levels=20,
+            )
+            fig.colorbar(cf, ax=ax_spec, location="right",
+                         shrink=1.0, pad=0.02, label="log10(power)")
+            ax_spec.set_title(
+                "Wavelet power — Lightning Flash Rate (Morlet, "
+                f"{WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)",
+                fontsize=9,
+            )
+        else:
+            ax_spec.text(
+                0.5, 0.5, "No lightning data / insufficient signal for wavelet",
+                transform=ax_spec.transAxes, ha="center", va="center", fontsize=9,
+            )
+            ax_spec.set_xticks([])
+            ax_spec.set_yticks([])
+        ax_spec.set_ylabel("Frequency (mHz)")
+
+    bottom_ax = ax_spec if add_spectrogram else ax_lat
+    bottom_ax.set_xlabel("Time (UTC, hours)")
+    bottom_ax.set_xlim(float(sub["t_hours"].min()), float(sub["t_hours"].max()))
+    bottom_ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    bottom_ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
+
+    axes_all = (ax_lon, ax_lat, ax_spec) if add_spectrogram else (ax_lon, ax_lat)
+    for ax in axes_all:
         ax.grid(True, linestyle=":", alpha=0.4)
 
     movavg_srt = int(re.findall(r'\d+', dtec_col)[0])
@@ -454,8 +521,8 @@ def plot_pairs_trajectory(
 
     if out_path is None:
         out_path = (
-            dtec_keogram_figs_dir()
-            / f"ttd_{year}-{doy:03d}-{TIME_RANGE[0]}-{TIME_RANGE[1]}.png"
+            ttd_figs_dir()
+            / f"ttd_{year}-{doy:03d}-{eff_time_range[0]}-{eff_time_range[1]}.png"
         )
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -512,6 +579,7 @@ def run(
     mode="topN", n=12, pairs=None, min_points=5,
     trh=None,
     stations=None,
+    add_spectrogram=True,         # trajectory only: LFR wavelet panel
     out_path=None,
 ):
     df = load_window(
@@ -533,7 +601,10 @@ def run(
     if kind == "trajectory":
         return plot_pairs_trajectory(
             df, chosen, year=year, doy=doy,
-            dtec_col=dtec_col, trh=trh, out_path=out_path,
+            dtec_col=dtec_col, trh=trh,
+            add_spectrogram=add_spectrogram,
+            lat_range=lat_range, lon_range=lon_range, time_range=time_range,
+            out_path=out_path,
         )
     elif kind == "timeseries":
         return plot_pairs_lines(
@@ -548,73 +619,6 @@ def run(
 # 6. IDE / CLI entry point
 # ==========================================================================
 
-
-# if __name__ == "__main__":
-#     RUN_MANUALLY = True
-#     if RUN_MANUALLY:
-#         print("Running in IDE Manual Mode...")
-
-#         # --- Date/time windows to process -----------------------------------
-#         runs = [
-#             (2021, 296, 14, 19),
-#             (2022, 279, 18, 23),
-#             (2022,  97, 16, 21),
-#             (2023, 347, 15, 21),
-#             (2023, 347,  7, 11),
-#             (2023, 348,  0, 10),
-#             (2023, 348, 18, 22),
-#             (2024, 264,  0,  3),
-#             (2024, 264,  9, 15),
-#             (2024, 264, 13, 16),
-#             (2024, 264,  0,  3),
-#             (2024, 264,  9, 22),
-#             (2024, 333,  9, 20),
-#             (2025, 298,  7, 12),
-#             (2025, 298, 18, 21),
-#         ]
-
-#         # --- Spatio-temporal cut --------------------------------------------
-#         LAT_RANGE = (-32.01, -17.99)    # deg
-#         LON_RANGE = (-62.01, -47.99)    # deg
-
-#         # --- Loop over all date/time windows --------------------------------
-#         for tyear, tdoy, tbeg, tend in runs:
-#             TIME_RANGE = (tbeg, tend)
-
-#             out_path = dtec_keogram_figs_dir() / f"ttd_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png"
-#             if out_path.exists():
-#                 print(f"[skip] {out_path.name} already exists.")
-#                 continue
-
-#             print(f"[run ] year={tyear} doy={tdoy} time={tbeg}-{tend}h → {out_path.name}")
-
-#             run(
-#                 year=tyear, doy=tdoy,
-#                 lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-#                 dtec_col=None,          # auto-detect per file
-#                 kind="trajectory",
-#                 color_by="dtec",
-#                 mode="topN", n=500, min_points=10,
-#                 trh=.301,
-#                 out_path=out_path,
-#             )
-
-#     else:
-#         print("Running in CLI Mode...")
-#         args = parse_arguments()
-#         run(
-#             year=args.year, doy=args.doy,
-#             lat_range=tuple(args.lat), lon_range=tuple(args.lon),
-#             time_range=tuple(args.time),
-#             dtec_col=getattr(args, "dtec_col", None),   # None if not passed via CLI
-#             kind=args.kind,
-#             offset=args.offset, color_by=args.color_by,
-#             mode=args.mode, n=args.n, trh=args.trh,
-#         )
-
-# ==========================================================================
-# 6. IDE / CLI entry point
-# ==========================================================================
 if __name__ == "__main__":
     RUN_MANUALLY = True
     if RUN_MANUALLY:
@@ -643,44 +647,52 @@ if __name__ == "__main__":
         LAT_RANGE = (-32.01, -17.99)    # deg
         LON_RANGE = (-62.01, -47.99)    # deg
 
+        # --- Which figures to generate ---------------------------------------
+        GENERATE_TTD    = True   # TTD (trajectory) figure -- the one we're using
+        GENERATE_STORMS = False  # 4-panel storms figure -- disabled for now
+        ADD_SPECTROGRAM = True   # extra LFR wavelet panel inside the TTD figure
+
         # --- Loop over all date/time windows --------------------------------
         for tyear, tdoy, tbeg, tend in runs:
             TIME_RANGE = (tbeg, tend)
 
             # --- Figure 1: TTD (ionosphere) --------------------------------
-            ttd_path = (dtec_keogram_figs_dir()
-                        / f"ttd_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png")
-            if ttd_path.exists():
-                print(f"[skip] {ttd_path.name} already exists.")
-            else:
-                print(f"[run ] {ttd_path.name}")
-                run(
-                    year=tyear, doy=tdoy,
-                    lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-                    dtec_col=None,          # auto-detect per file
-                    kind="trajectory",
-                    color_by="dtec",
-                    mode="topN", n=500, min_points=10,
-                    trh=.301,
-                    out_path=ttd_path,
-                )
+            if GENERATE_TTD:
+                ttd_path = (ttd_figs_dir()
+                            / f"ttd_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png")
+                if ttd_path.exists():
+                    print(f"[skip] {ttd_path.name} already exists.")
+                else:
+                    print(f"[run ] {ttd_path.name}")
+                    run(
+                        year=tyear, doy=tdoy,
+                        lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+                        dtec_col=None,          # auto-detect per file
+                        kind="trajectory",
+                        color_by="dtec",
+                        mode="topN", n=500, min_points=10,
+                        trh=.301,
+                        add_spectrogram=ADD_SPECTROGRAM,
+                        out_path=ttd_path,
+                    )
 
             # --- Figure 2: tracked storms (complementary) ------------------
-            storms_path = (dtec_keogram_figs_dir()
-                           / f"storms_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png")
-            if storms_path.exists():
-                print(f"[skip] {storms_path.name} already exists.")
-            else:
-                print(f"[run ] {storms_path.name}")
-                plot_storms_tracked(
-                    year=tyear, doy=tdoy,
-                    lat_range=LAT_RANGE, lon_range=LON_RANGE,
-                    time_range=TIME_RANGE,
-                    max_link_dist_deg=2.0,
-                    max_gap_frames=1,
-                    min_track_len=3,
-                    out_path=storms_path,
-                )
+            if GENERATE_STORMS:
+                storms_path = (ttd_figs_dir()
+                               / f"storms_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png")
+                if storms_path.exists():
+                    print(f"[skip] {storms_path.name} already exists.")
+                else:
+                    print(f"[run ] {storms_path.name}")
+                    plot_storms_tracked(
+                        year=tyear, doy=tdoy,
+                        lat_range=LAT_RANGE, lon_range=LON_RANGE,
+                        time_range=TIME_RANGE,
+                        max_link_dist_deg=2.0,
+                        max_gap_frames=1,
+                        min_track_len=3,
+                        out_path=storms_path,
+                    )
 
     else:
         print("Running in CLI Mode...")
