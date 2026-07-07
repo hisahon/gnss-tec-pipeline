@@ -359,6 +359,9 @@ def plot_pairs_trajectory(
     lat_range: tuple | None = None,   # falls back to global LAT_RANGE
     lon_range: tuple | None = None,   # falls back to global LON_RANGE
     time_range: tuple | None = None,  # falls back to global TIME_RANGE
+    lightning_lat_range: tuple | None = None,  # area used ONLY for the LFR
+    lightning_lon_range: tuple | None = None,  # panel; falls back to the
+                                                # TTD's own lat/lon box above
     out_path: Path | None = None,
     dpi: int = 300,
 ):
@@ -372,11 +375,25 @@ def plot_pairs_trajectory(
     Each point is colored by its dTEC on a shared colorbar. Optionally overlays
     storm centroids as a light, neutral reference layer (position only — the
     temperature analysis lives in the dedicated storm figure).
+
+    The lightning panel searches for flashes inside `lightning_lat_range` /
+    `lightning_lon_range` if given, which can be wider (or otherwise
+    different) than the box used for the dTEC/IPP panels above -- useful
+    since the storm driving the lightning may sit outside the narrow IPP
+    window. If left as None, it defaults to the same box as the TTD.
     """
     # --- resolve effective lat/lon/time window (explicit arg > global) -----
     eff_lat_range  = lat_range  if lat_range  is not None else LAT_RANGE
     eff_lon_range  = lon_range  if lon_range  is not None else LON_RANGE
     eff_time_range = time_range if time_range is not None else TIME_RANGE
+
+    # lightning-specific box: independent override, else same as the TTD
+    eff_lightning_lat_range = (
+        lightning_lat_range if lightning_lat_range is not None else eff_lat_range
+    )
+    eff_lightning_lon_range = (
+        lightning_lon_range if lightning_lon_range is not None else eff_lon_range
+    )
 
     # --- Storm reference marker styling --------------------------------
     storm_marker        = "o"
@@ -477,7 +494,7 @@ def plot_pairs_trajectory(
     if add_spectrogram:
         spec_result = lfr_spectrogram(
             year, doy,
-            lat_range=eff_lat_range, lon_range=eff_lon_range,
+            lat_range=eff_lightning_lat_range, lon_range=eff_lightning_lon_range,
             time_range=eff_time_range,
         )
 
@@ -580,6 +597,8 @@ def run(
     trh=None,
     stations=None,
     add_spectrogram=True,         # trajectory only: LFR wavelet panel
+    lightning_lat_range=None,     # trajectory only: independent LFR box
+    lightning_lon_range=None,     # (defaults to lat_range/lon_range above)
     out_path=None,
 ):
     df = load_window(
@@ -604,6 +623,8 @@ def run(
             dtec_col=dtec_col, trh=trh,
             add_spectrogram=add_spectrogram,
             lat_range=lat_range, lon_range=lon_range, time_range=time_range,
+            lightning_lat_range=lightning_lat_range,
+            lightning_lon_range=lightning_lon_range,
             out_path=out_path,
         )
     elif kind == "timeseries":
@@ -618,7 +639,6 @@ def run(
 # ==========================================================================
 # 6. IDE / CLI entry point
 # ==========================================================================
-
 if __name__ == "__main__":
     RUN_MANUALLY = True
     if RUN_MANUALLY:
@@ -647,6 +667,13 @@ if __name__ == "__main__":
         LAT_RANGE = (-32.01, -17.99)    # deg
         LON_RANGE = (-62.01, -47.99)    # deg
 
+        # Lightning panel: independent area (can be smaller OR larger than
+        # LAT_RANGE/LON_RANGE above -- e.g. a tighter box around the storm
+        # of interest, or a wider one to catch flashes outside the TEC box).
+        # Leave both as None to just reuse LAT_RANGE / LON_RANGE above.
+        LIGHTNING_LAT_RANGE = None    # e.g. (-27.0, -23.0)
+        LIGHTNING_LON_RANGE = None    # e.g. (-55.0, -51.0)
+
         # --- Which figures to generate ---------------------------------------
         GENERATE_TTD    = True   # TTD (trajectory) figure -- the one we're using
         GENERATE_STORMS = False  # 4-panel storms figure -- disabled for now
@@ -673,6 +700,8 @@ if __name__ == "__main__":
                         mode="topN", n=500, min_points=10,
                         trh=.301,
                         add_spectrogram=ADD_SPECTROGRAM,
+                        lightning_lat_range=LIGHTNING_LAT_RANGE,
+                        lightning_lon_range=LIGHTNING_LON_RANGE,
                         out_path=ttd_path,
                     )
 
