@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Jul  3 19:03:28 2026
-
-@author: hisas
-"""
-
-# -*- coding: utf-8 -*-
-"""
 shared/lightning_spectrogram.py
 
 Lightning Flash Rate (LFR) wavelet spectrogram.
@@ -17,7 +10,8 @@ Given a lat/lon/time window, this module:
   2. clips it to the requested spatial box + time window and resamples
      it into a regular flash-rate series (flashes/s) at
      LFR_SAMPLING_RATE seconds, filling gaps with 0,
-  3. detrends it (removes a short running mean),
+  3. band-pass filters it (zero-phase Butterworth, via filtfilt) to
+     keep only BANDPASS_LOW_MHZ-BANDPASS_HIGH_MHZ before the wavelet,
   4. runs a Morlet wavelet transform (Torrence & Compo, via
      shared.waveletFunctions) and slices it to WAV_FREQ_BOUNDS,
   5. normalises + log10s the power, ready to hand straight to
@@ -43,6 +37,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.signal import butter, filtfilt
 
 from shared.waveletFunctions import wavelet_on_data_new, wd_slicer
 
@@ -67,22 +62,38 @@ WAV_S0     = 0.90
 WAV_J1     = 24
 WAV_LAG1   = 0.71
 WAV_MOTHER = "MORLET"
-WAV_FREQ_BOUNDS = [2, 10]   # mHz, passed to wd_slicer
+WAV_FREQ_BOUNDS = [2, 10]   # mHz, passed to wd_slicer (crops the wavelet
+                            # output for display -- separate from the
+                            # time-domain band-pass below)
 
-DETREND_WIN = 20   # 5-min running-mean window at 15s/sample (20 * 15s = 300s)
+# Band-pass filter (Butterworth, zero-phase via filtfilt) applied to the
+# LFR series BEFORE the wavelet transform, replacing the previous
+# detrend + moving-average smoothing.
+BANDPASS_LOW_MHZ  = 1    # mHz -- frequencies below this are removed
+BANDPASS_HIGH_MHZ = 10   # mHz -- frequencies above this are removed
+BANDPASS_ORDER    = 4
 
 
 # ==========================================================================
 # Internals
 # ==========================================================================
-def _detrend(series: np.ndarray, wins: int) -> np.ndarray:
-    """Remove running mean -- identical to lfr_explorer.py's _detrend."""
-    trimm    = wins // 2
-    smoothed = np.convolve(series, np.ones(wins) / wins, mode="same")
-    out      = series - smoothed
-    out[:trimm]  = 0.0
-    out[-trimm:] = 0.0
-    return out
+def _bandpass_filter(
+    series: np.ndarray,
+    fs: float,
+    low_hz: float,
+    high_hz: float,
+    order: int = 4,
+) -> np.ndarray:
+    """
+    Zero-phase Butterworth band-pass filter (via filtfilt, so it doesn't
+    shift the signal in time). Removes frequencies below `low_hz` and
+    above `high_hz`.
+    """
+    nyq  = fs / 2.0
+    low  = low_hz / nyq
+    high = high_hz / nyq
+    b, a = butter(order, [low, high], btype="band")
+    return filtfilt(b, a, series)
 
 
 def _find_lightning_file(year: int, doy: int) -> Path | None:
@@ -165,14 +176,21 @@ def load_lightning_lfr(
 def compute_spectrogram_from_lfr(lfr_values: np.ndarray):
     """
     Morlet wavelet power spectrum of an LFR array.
-    Parameters and normalisation copied from lfr_explorer.py's
-    _compute_wavelet(), so results are directly comparable.
+    Pipeline: Butterworth band-pass filter (zero-phase, via filtfilt;
+    keeps only BANDPASS_LOW_MHZ-BANDPASS_HIGH_MHZ) -> wavelet.
+    Wavelet parameters and normalisation copied from lfr_explorer.py's
+    _compute_wavelet(); the band-pass step replaces its detrend step.
 
     Returns (t_hours_elapsed, freq, power) or None if there isn't enough
     signal (matches the >=16 non-zero samples guard in lfr_explorer.py).
     t_hours_elapsed is time since the start of the window, in hours.
     """
-    signal = _detrend(lfr_values.astype(float), DETREND_WIN)
+    fs = 1.0 / LFR_SAMPLING_RATE
+    signal = _bandpass_filter(
+        lfr_values.astype(float), fs=fs,
+        low_hz=BANDPASS_LOW_MHZ * 1e-3, high_hz=BANDPASS_HIGH_MHZ * 1e-3,
+        order=BANDPASS_ORDER,
+    )
     if np.count_nonzero(signal) < 16:
         return None
 
