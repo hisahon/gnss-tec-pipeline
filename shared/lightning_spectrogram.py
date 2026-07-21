@@ -70,7 +70,7 @@ WAV_FREQ_BOUNDS = [2, 10]   # mHz, passed to wd_slicer (crops the wavelet
 # LFR series BEFORE the wavelet transform, replacing the previous
 # detrend + moving-average smoothing.
 BANDPASS_LOW_MHZ  = 1    # mHz -- frequencies below this are removed
-BANDPASS_HIGH_MHZ = 10   # mHz -- frequencies above this are removed
+BANDPASS_HIGH_MHZ = 12   # mHz -- frequencies above this are removed
 BANDPASS_ORDER    = 4
 
 

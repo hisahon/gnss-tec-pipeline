@@ -397,7 +397,7 @@ def plot_pairs_trajectory(
 
     # --- Storm reference marker styling --------------------------------
     storm_marker        = "o"
-    storm_marker_s      = 25.
+    storm_marker_s      = 35.
     storm_marker_alpha  = 1.
 
     sub = df.loc[df["pair"].isin(chosen_pairs)]
@@ -524,11 +524,14 @@ def plot_pairs_trajectory(
     bottom_ax.set_xlabel("Time (UTC, hours)")
     bottom_ax.set_xlim(float(sub["t_hours"].min()), float(sub["t_hours"].max()))
     bottom_ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    bottom_ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
+    bottom_ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
 
     axes_all = (ax_lon, ax_lat, ax_spec) if add_spectrogram else (ax_lon, ax_lat)
     for ax in axes_all:
-        ax.grid(True, linestyle=":", alpha=0.4)
+        ax.set_axisbelow(False)   # forca o grid a ficar por cima do scatter
+        ax.grid(True, linestyle=":", alpha=1., zorder=5)
+        ax.grid(True, which="minor", linestyle=":", alpha=1., zorder=5)
+        
 
     movavg_srt = int(re.findall(r'\d+', dtec_col)[0])
     ax_lon.set_title(
@@ -646,21 +649,29 @@ if __name__ == "__main__":
 
         # --- Date/time windows to process -----------------------------------
         runs = [
-            (2021, 296, 14, 19),
-            (2022, 279, 18, 23),
-            (2022,  97, 16, 21),
-            (2023, 347, 15, 21),
-            (2023, 347,  7, 11),
-            (2023, 348,  0, 10),
-            (2023, 348, 18, 22),
-            (2024, 264,  0,  3),
-            (2024, 264,  9, 15),
-            (2024, 264, 13, 16),
-            (2024, 264,  0,  3),
-            (2024, 264,  9, 22),
-            (2024, 333,  9, 20),
-            (2025, 298,  7, 12),
-            (2025, 298, 18, 21),
+            # (2021, 296, 14, 19),
+            (2022, 279, 18, 22),
+            (2022,  97, 17, 20),
+            
+            (2023, 347, 8, 10),
+            (2023, 347,  15, 17),
+            (2023, 347,  17, 20),
+            (2023, 348,  17, 21),
+            # (2023, 348, 18, 22),
+            
+            (2024, 264,  11, 13),
+            (2024, 264,  13, 15),
+            (2024, 264, 16, 18),
+            (2024, 264, 18,  21),
+            # (2024, 264,  9, 22),
+            
+            (2024, 333,  10, 12),
+            (2024, 333,  12, 14),
+            (2024, 333,  14, 16),
+            (2024, 333,  16, 18),
+            
+            # (2025, 298,  7, 12),
+            # (2025, 298, 18, 21),
         ]
 
         # --- Spatio-temporal cut --------------------------------------------
