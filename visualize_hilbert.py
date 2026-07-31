@@ -229,6 +229,16 @@ def select_pairs_by_hilbert(
                 plt.legend(loc='upper right')
                 plt.tight_layout()
                 
+                # =======================================================
+                # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
+                # =======================================================
+                plt.figtext(0.99, 0.1, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_pairs_trajectory\nStorage: figures_overview/', 
+                            horizontalalignment='right', 
+                            verticalalignment='bottom', 
+                            fontsize=10, 
+                            color='gray', 
+                            alpha=0.7) # Alpha deixa o texto um pouco transparente
+                
                 # --- SALVAR NO DISCO ---
                 # 1. Define o caminho da pasta
                 pasta_destino = f'figures_overview/{tyear}{tdoy}_{TIME_RANGE[0]}{TIME_RANGE[1]}'
@@ -549,6 +559,17 @@ def plot_combined_panels(
         ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
         ax.grid(True, which="major", linestyle=":", alpha=0.6, zorder=0)
         ax.grid(True, which="minor", linestyle=":", alpha=0.3, zorder=0)
+    
+    # =======================================================
+    # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
+    # =======================================================
+    fig.text(0.99, 0.1, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: figures_overview/', 
+             horizontalalignment='right', 
+             verticalalignment='bottom', 
+             fontsize=10, 
+             color='gray', 
+             alpha=0.7)
+    # =======================================================
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
