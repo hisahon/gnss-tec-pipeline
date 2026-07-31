@@ -1,6 +1,7 @@
 # --- ambiente ---
 .venv/
 venv/
+figures_overview/
 .env
 
 # --- Python ---
