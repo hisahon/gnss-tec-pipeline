@@ -563,7 +563,7 @@ def plot_combined_panels(
     # =======================================================
     # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
     # =======================================================
-    fig.text(0.99, 0.1, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: figures_overview/', 
+    fig.text(0.99, 0.1, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
              horizontalalignment='right', 
              verticalalignment='bottom', 
              fontsize=10, 
