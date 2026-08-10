@@ -538,7 +538,14 @@ def plot_pairs_trajectory(
         f"TRAVEL TIME DIAGRAM: {year}-{doy:03d} | MOV. AVG.: {movavg_srt} min"
         f"  |  {len(chosen_pairs)} pair(s)"
     )
-
+    
+    fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_scatter.py\nFunction: plot_pairs_trajectory\nStorage: database/ionosphere/keograms_TTDs/', 
+             horizontalalignment='right', 
+             verticalalignment='bottom', 
+             fontsize=10, 
+             color='black', 
+             alpha=0.7)
+    
     if out_path is None:
         out_path = (
             ttd_figs_dir()
@@ -551,7 +558,180 @@ def plot_pairs_trajectory(
     print(f"Image saved: {out_path}")
     return out_path
 
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calcula a distância esférica (em km) entre dois pontos na Terra."""
+    R = 6371.0 # Raio médio da Terra em km
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+    c = 2 * np.arcsin(np.sqrt(a))
+    return R * c
 
+def plot_pairs_distance(
+    df: pd.DataFrame,
+    chosen_pairs: list,
+    year: int,
+    doy: int,
+    dtec_col: str = "dtec_15min",
+    trh: float | None = None,
+    cmap: str = "Spectral",        # Colormap atualizado para melhor contraste
+    s: float = 12.0,
+    plot_storms: bool = True,
+    add_spectrogram: bool = True,
+    lat_range: tuple | None = None,
+    lon_range: tuple | None = None,
+    time_range: tuple | None = None,
+    lightning_lat_range: tuple | None = None,
+    lightning_lon_range: tuple | None = None,
+    out_path: Path | None = None,
+    dpi: int = 300,
+):
+    """
+    Scatter plot da distância (em km) entre os IPPs e os centroides das nuvens, 
+    cuja trajetória é modelada por uma aproximação polinomial.
+    Compartilha o eixo X (tempo) com um possível espectrograma.
+    """
+    # --- Resolve os limites geográficos e temporais globais ---
+    eff_lat_range  = lat_range  if lat_range  is not None else LAT_RANGE
+    eff_lon_range  = lon_range  if lon_range  is not None else LON_RANGE
+    eff_time_range = time_range if time_range is not None else TIME_RANGE
+
+    eff_lightning_lat_range = lightning_lat_range if lightning_lat_range is not None else eff_lat_range
+    eff_lightning_lon_range = lightning_lon_range if lightning_lon_range is not None else eff_lon_range
+
+    sub = df.loc[df["pair"].isin(chosen_pairs)].copy()
+    
+    # Ordenar por tempo é essencial para que os arrays batam corretamente
+    sub = sub.sort_values("t_hours")
+
+    vmax = trh if trh is not None else float(np.nanmax(np.abs(sub[dtec_col])))
+    norm = mpl.colors.Normalize(vmin=-vmax, vmax=vmax)
+
+    # --- Processamento e Aproximação Polinomial das Nuvens ------
+    dist_array = np.full(len(sub), np.nan)
+    
+    if plot_storms:
+        df_storms = pd.read_parquet(storms_SouthAmerica(), engine="fastparquet")
+        t0 = pd.Timestamp(year=year, month=1, day=1) + pd.Timedelta(days=doy - 1)
+        t1 = t0 + pd.Timedelta(days=1)
+        df_storms = df_storms[(df_storms['datetime'] >= t0) & (df_storms['datetime'] < t1)].copy()
+        
+        lat_lo, lat_hi = sorted(eff_lat_range)
+        lon_lo, lon_hi = sorted(eff_lon_range)
+        df_storms = df_storms[
+            df_storms['centroid_lat'].between(lat_lo - 3, lat_hi + 3) &
+            df_storms['centroid_lon'].between(lon_lo - 3, lon_hi + 3)
+        ].copy()
+
+        if not df_storms.empty:
+            # 1. Agrupar centroides do mesmo instante pela média 
+            storm_agg = df_storms.groupby('datetime', as_index=False)[['centroid_lon', 'centroid_lat']].mean()
+            storm_agg = storm_agg.sort_values('datetime')
+            
+            t_hours_storm = (storm_agg['datetime'] - t0).dt.total_seconds().to_numpy() / 3600.0
+            lon_c_arr = storm_agg['centroid_lon'].to_numpy()
+            lat_c_arr = storm_agg['centroid_lat'].to_numpy()
+
+            # 2. Aproximação Polinomial (Suavização da trajetória)
+            grau = 2  # Usando grau 2 para capturar a tendência parabólica suave do sistema
+            coef_lon = np.polyfit(t_hours_storm, lon_c_arr, grau)
+            coef_lat = np.polyfit(t_hours_storm, lat_c_arr, grau)
+
+            # 3. Calcular a posição suave projetada para os exatos instantes dos IPPs
+            sub_t = sub["t_hours"].to_numpy()
+            interp_lon = np.polyval(coef_lon, sub_t)
+            interp_lat = np.polyval(coef_lat, sub_t)
+
+            # 4. Calcular distância de Haversine (em km)
+            dist_array = haversine_distance(sub[LAT_COL].to_numpy(), sub[LON_COL].to_numpy(), interp_lat, interp_lon)
+            print(f"[storms] Trajetória modelada com polinômio de grau {grau}.")
+            print(f"[storms] Distância máx: {np.nanmax(dist_array):.1f} km, mín: {np.nanmin(dist_array):.1f} km")
+        else:
+            print("[storms] Nenhuma nuvem encontrada para este dia/janela.")
+
+    sub["distance_km"] = dist_array
+
+    # --- Configuração da Figura ---
+    if add_spectrogram:
+        fig, (ax_dist, ax_spec) = plt.subplots(
+            2, 1, figsize=(14, 9), constrained_layout=True, sharex=True,
+            gridspec_kw={"height_ratios": [2, 1]},
+        )
+    else:
+        fig, ax_dist = plt.subplots(figsize=(14, 6), constrained_layout=True)
+        ax_spec = None
+
+    absdtec = np.abs(sub[dtec_col])
+    w      = np.clip(absdtec / vmax, 0.0, 1.0)
+    gamma  = 2.0                            
+    alpha  = 0.10 + 0.90 * (w ** gamma)
+    s_sizes = absdtec * 25
+
+    # --- Painel 1: Scatter da Distância ---
+    ax_dist.scatter(
+        sub["t_hours"], sub["distance_km"], 
+        c=sub[dtec_col], s=s_sizes,
+        cmap=cmap, norm=norm, edgecolors="none", alpha=alpha
+    )
+
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap))
+    sm.set_array([])
+    fig.colorbar(sm, ax=ax_dist, location="right", shrink=1.0, pad=0.02, label="dTEC (TECU)")
+
+    ax_dist.set_ylabel("Distância IPP à Nuvem (km)")
+
+    # --- Painel 2: Espectrograma (Opcional) ---
+    if add_spectrogram:
+        spec_result = lfr_spectrogram(
+            year, doy,
+            lat_range=eff_lightning_lat_range, lon_range=eff_lightning_lon_range,
+            time_range=eff_time_range,
+        )
+
+        if spec_result is not None:
+            t_hours_spec, freq, power = spec_result
+            cf = ax_spec.contourf(t_hours_spec, freq, power, cmap="nipy_spectral", levels=20)
+            fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.02, label="log10(power)")
+            ax_spec.set_title(f"Wavelet power — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=9)
+        else:
+            ax_spec.text(0.5, 0.5, "No lightning data / insufficient signal for wavelet", transform=ax_spec.transAxes, ha="center", va="center", fontsize=9)
+            ax_spec.set_xticks([])
+            ax_spec.set_yticks([])
+        ax_spec.set_ylabel("Frequency (mHz)")
+
+    # --- Configurações dos Eixos X e Grid ---
+    bottom_ax = ax_spec if add_spectrogram else ax_dist
+    bottom_ax.set_xlabel("Time (UTC, hours)")
+    bottom_ax.set_xlim(float(sub["t_hours"].min()), float(sub["t_hours"].max()))
+    bottom_ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    bottom_ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
+
+    axes_all = (ax_dist, ax_spec) if add_spectrogram else (ax_dist,)
+    for ax in axes_all:
+        ax.set_axisbelow(False)
+        ax.grid(True, linestyle=":", alpha=1., zorder=5)
+        ax.grid(True, which="minor", linestyle=":", alpha=1., zorder=5)
+
+    movavg_srt = int(re.findall(r'\d+', dtec_col)[0]) if re.search(r"\d", dtec_col) else "N/A"
+    ax_dist.set_title(
+        f"DISTANCE DIAGRAM: {year}-{doy:03d} | MOV. AVG.: {movavg_srt} min | {len(chosen_pairs)} pair(s) | Storm Fit: Poly(2)"
+    )
+
+    # Nota lateral semelhante à rotina original
+    fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_scatter.py\nFunction: plot_pairs_distance\nStorage: database/ionosphere/keograms_TTDs/', 
+             horizontalalignment='right', verticalalignment='bottom', fontsize=10, color='black', alpha=0.7)
+
+    # --- Salvar Arquivo ---
+    if out_path is None:
+        out_path = ttd_figs_dir() / f"dist_storm_{year}-{doy:03d}-{eff_time_range[0]}-{eff_time_range[1]}.png"
+    
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Image saved: {out_path}")
+    return out_path
 
 # ==========================================================================
 # 4. CLI parsing
@@ -576,10 +756,11 @@ def parse_arguments():
     parser.add_argument("--mode", choices=["all", "topN", "list"], default="topN")
     parser.add_argument("--n", type=int, default=12)
     parser.add_argument("--trh", type=float, default=None)
-    parser.add_argument("--kind", choices=["timeseries", "trajectory"],
+    parser.add_argument("--kind", choices=["timeseries", "trajectory", "distance"],
                         default="timeseries",
                         help="timeseries = dTEC line stack; "
-                             "trajectory = lon/lat vs time (two panels).")
+                             "trajectory = lon/lat vs time (two panels); "
+                             "distance = dist(km) to storm vs time.")
     parser.add_argument("--color-by", choices=["dtec", "pair"], default="dtec",
                         help="Trajectory coloring (ignored for timeseries).")
     return parser.parse_args()
@@ -635,8 +816,19 @@ def run(
             df, chosen, year=year, doy=doy,
             dtec_col=dtec_col, offset=offset, trh=trh, out_path=out_path,
         )
+        
+    elif kind == "distance":
+        return plot_pairs_distance(
+            df, chosen, year=year, doy=doy,
+            dtec_col=dtec_col, trh=trh,
+            add_spectrogram=add_spectrogram,
+            lat_range=lat_range, lon_range=lon_range, time_range=time_range,
+            lightning_lat_range=lightning_lat_range,
+            lightning_lon_range=lightning_lon_range,
+            out_path=out_path,
+        )
     else:
-        raise ValueError(f"Unknown kind: {kind!r} (use 'timeseries' or 'trajectory').")
+        raise ValueError(f"Unknown kind: {kind!r} (use 'timeseries', 'trajectory' or 'distance').")
 
 
 # ==========================================================================
@@ -689,6 +881,7 @@ if __name__ == "__main__":
         GENERATE_TTD    = True   # TTD (trajectory) figure -- the one we're using
         GENERATE_STORMS = False  # 4-panel storms figure -- disabled for now
         ADD_SPECTROGRAM = True   # extra LFR wavelet panel inside the TTD figure
+        GENERATE_DIST   = True   # Nova figura de distância
 
         # --- Loop over all date/time windows --------------------------------
         for tyear, tdoy, tbeg, tend in runs:
@@ -732,6 +925,28 @@ if __name__ == "__main__":
                         max_gap_frames=1,
                         min_track_len=3,
                         out_path=storms_path,
+                    )
+                    
+            # --- Figure 1.5: Distance to Storm -----------------------------
+            if GENERATE_DIST:
+                dist_path = (ttd_figs_dir()
+                            / f"dist_{tyear}-{tdoy:03d}-{tbeg}-{tend}.png")
+                if dist_path.exists():
+                    print(f"[skip] {dist_path.name} already exists.")
+                else:
+                    print(f"[run ] {dist_path.name}")
+                    run(
+                        year=tyear, doy=tdoy,
+                        lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+                        dtec_col=None,          
+                        kind="distance",     # Aqui chamamos o novo método!
+                        color_by="dtec",
+                        mode="topN", n=500, min_points=10,
+                        trh=.301,
+                        add_spectrogram=ADD_SPECTROGRAM,
+                        lightning_lat_range=LIGHTNING_LAT_RANGE,
+                        lightning_lon_range=LIGHTNING_LON_RANGE,
+                        out_path=dist_path,
                     )
 
     else:

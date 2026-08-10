@@ -62,7 +62,7 @@ WAV_S0     = 0.90
 WAV_J1     = 24
 WAV_LAG1   = 0.71
 WAV_MOTHER = "MORLET"
-WAV_FREQ_BOUNDS = [2, 10]   # mHz, passed to wd_slicer (crops the wavelet
+WAV_FREQ_BOUNDS = [2, 7]   # mHz, passed to wd_slicer (crops the wavelet
                             # output for display -- separate from the
                             # time-domain band-pass below)
 

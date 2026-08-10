@@ -142,6 +142,8 @@ def load_window(
 # ==========================================================================
 # 2. Pair selection (Original & Hilbert)
 # ==========================================================================
+
+
 def select_pairs(
     df: pd.DataFrame, mode: str = "topN", n: int = 12,
     pairs: list | None = None, min_points: int = 5,
@@ -212,7 +214,7 @@ def select_pairs_by_hilbert(
                 selected_pairs.append(pair)
                 
             # --- Criação do Gráfico ---
-            if True:
+            if False:
                 print(f'Saving {pair}')
                 plt.figure(figsize=(8, 4))
                 
@@ -266,41 +268,6 @@ def select_pairs_by_hilbert(
     if not selected_pairs:
         raise ValueError("Nenhum par sobreviveu ao filtro de Hilbert com este threshold.")
     return selected_pairs
-
-# def select_pairs_by_hilbert(
-#     df: pd.DataFrame, dtec_col: str, threshold: float,
-#     sample_rate_sec: float = 30.0, min_period_min: float = 10.0,
-#     max_period_min: float = 60.0, min_points: int = 30
-# ) -> list:
-#     selected_pairs = []
-#     fs = 1.0 / sample_rate_sec
-#     nyq = 0.5 * fs
-#     low = (1.0 / (max_period_min * 60.0)) / nyq
-#     high = (1.0 / (min_period_min * 60.0)) / nyq
-#     b, a = butter(4, [low, high], btype='band')
-
-#     unique_pairs = df["pair"].unique()
-#     for pair in unique_pairs:
-#         sub = df[df["pair"] == pair].sort_values("t_hours")
-#         y = sub[dtec_col].to_numpy()
-#         x = sub['t_hours'].to_numpy()
-#         if len(y) < min_points:
-#             continue
-#         try:
-#             y_filt = filtfilt(b, a, y)
-#             amplitude_envelope = np.abs(hilbert(y_filt))
-#             max_envelope = np.max(amplitude_envelope)
-#             if max_envelope > threshold:
-#                 selected_pairs.append(pair)
-                
-            
-#         except ValueError:
-#             continue
-            
-#     print(f"[hilbert filter] {len(selected_pairs)} pares encontrados com oscilação > {threshold} TECU.")
-#     if not selected_pairs:
-#         raise ValueError("Nenhum par sobreviveu ao filtro de Hilbert com este threshold.")
-#     return selected_pairs
 
 
 # ==========================================================================
@@ -455,6 +422,7 @@ def plot_pairs_trajectory(
 
 
 # --- 3C. New 3-Panel Plot (Line Stack + LFR + Wavelet) ---
+# --- 3C. New 3-Panel Plot (Line Stack + LFR + Wavelet) ---
 def plot_combined_panels(
     df: pd.DataFrame, chosen_pairs: list, year: int, doy: int,
     dtec_col: str = "dtec_15min", offset: float = 1.0, cmap_name: str = "tab20", 
@@ -499,7 +467,7 @@ def plot_combined_panels(
     ax_dtec.set_ylim(baselines[0] - bot_pad, baselines[-1] + top_pad)
     ax_dtec.set_ylabel("Receiver-PRN (dTEC)")
     
-    movavg = int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
+    # movavg = int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
     title = f"Filtered Perturbations — {year} DOY {doy:03d} | {len(chosen_pairs)} pair(s) | offset {offset:g} TECU"
     ax_dtec.set_title(title)
 
@@ -524,20 +492,51 @@ def plot_combined_panels(
             # Converte a taxa de flashes/s para flashes/minuto
             lfr_rate = lfr_series.values * 60.0
             
+            # =========================================================
+            # Filtro Butterworth para a série de raios (LFR)
+            # =========================================================
+            sample_rate_sec_lfr = 15.0 
+            fs_lfr = 1.0 / sample_rate_sec_lfr
+            nyq_lfr = 0.5 * fs_lfr
+            
+            lfr_min_period_min = 1.2
+            lfr_max_period_min = 7.0
+            
+            low_lfr = (1.0 / (lfr_max_period_min * 60.0)) / nyq_lfr
+            high_lfr = (1.0 / (lfr_min_period_min * 60.0)) / nyq_lfr
+            
+            b_lfr, a_lfr = butter(4, [low_lfr, high_lfr], btype='band')
+            lfr_rate_filt = filtfilt(b_lfr, a_lfr, lfr_rate)
+            # =========================================================
+            
             # Recria o eixo de tempo (horas decimais), baseado na taxa de amostragem de 15s
             h0_lfr, _ = eff_time_range
             t_lfr = h0_lfr + np.arange(len(lfr_rate)) * 15.0 / 3600.0
             
-            ax_lfr.plot(t_lfr, lfr_rate, color="black", linewidth=1.0)
-            ax_lfr.fill_between(t_lfr, 0, lfr_rate, color="orange", alpha=0.4)
+            # 1. Plota os dados originais no eixo Y esquerdo (padrão)
+            ax_lfr.plot(t_lfr, lfr_rate, color="black", linewidth=1.5, label="Original")
+            ax_lfr.fill_between(t_lfr, 0, lfr_rate, color="grey", alpha=0.4)
+            ax_lfr.set_ylabel("LFR (flashes/min)", color="black")
+            ax_lfr.tick_params(axis='y', labelcolor="black")
+            ax_lfr.set_ylim(bottom=0)
+            
+            # 2. Cria o segundo eixo Y à direita e plota os dados filtrados
+            ax_lfr_twin = ax_lfr.twinx()
+            ax_lfr_twin.plot(t_lfr, lfr_rate_filt, color="blue", linewidth=1.5, label="Butterworth")
+            ax_lfr_twin.set_ylabel(r"$\Delta$ LFR (flashes/min)", color="blue")
+            ax_lfr_twin.tick_params(axis='y', labelcolor="blue")
+            ax_lfr_twin.set_ylim(-300, 300)
+            
+            # Junta as legendas dos dois eixos
+            lines_1, labels_1 = ax_lfr.get_legend_handles_labels()
+            lines_2, labels_2 = ax_lfr_twin.get_legend_handles_labels()
+            ax_lfr.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper right", fontsize=8)
+            
         else:
             ax_lfr.text(0.5, 0.5, "No lightning data for timeseries", transform=ax_lfr.transAxes, ha="center", va="center", color="red")
             
     except Exception as e:
         ax_lfr.text(0.5, 0.5, f"LFR timeseries error / missing data\n({e})", transform=ax_lfr.transAxes, ha="center", va="center", color="red")
-        
-    ax_lfr.set_ylabel("LFR (flashes/min)")
-    ax_lfr.set_ylim(bottom=0)
 
     spec_result = lfr_spectrogram(
         year, doy, lat_range=eff_lightning_lat_range, lon_range=eff_lightning_lon_range, time_range=eff_time_range
@@ -545,8 +544,35 @@ def plot_combined_panels(
     if spec_result is not None:
         t_hours_spec, freq, power = spec_result
         cf = ax_spec.contourf(t_hours_spec, freq, power, cmap="nipy_spectral", levels=20)
-        fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.02, label="log10(power)")
+        
+        # Aumentamos o 'pad' de 0.02 para 0.08 para dar espaço ao novo eixo Y
+        # fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.08, label="log10(power)")
         ax_spec.set_title(f"Wavelet power — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=9)
+        
+        # =========================================================
+        # NOVO CÓDIGO: Eixo secundário (Período em minutos)
+        # =========================================================
+        # Funções de conversão (frequência em mHz <-> período em minutos)
+        # T(min) = (1 / (f * 10^-3)) / 60 = 1000 / (f * 60)
+        # Funções de conversão (frequência em mHz <-> período em minutos)
+        def mhz_to_min(f):
+            # Cria um array seguro substituindo 0 por 1 apenas para a matemática não reclamar
+            f_safe = np.where(f == 0, 1.0, f)
+            return np.where(f == 0, np.inf, 1000.0 / (f_safe * 60.0))
+            
+        def min_to_mhz(p):
+            p_safe = np.where(p == 0, 1.0, p)
+            return np.where(p == 0, np.inf, 1000.0 / (p_safe * 60.0))
+
+        # Cria o eixo secundário acoplado ao ax_spec
+        ax_spec_period = ax_spec.secondary_yaxis('right', functions=(mhz_to_min, min_to_mhz))
+        ax_spec_period.set_ylabel("Period (minutes)")
+        
+        # Opcional: Define ticks manuais se a escala automática ficar com números "quebrados"
+        # ax_spec_period.set_yticks([2, 5, 10, 15, 30])
+        # ax_spec_period.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
+        # =========================================================
+        
     else:
         ax_spec.text(0.5, 0.5, "No lightning data for wavelet", transform=ax_spec.transAxes, ha="center", va="center")
         
@@ -556,18 +582,18 @@ def plot_combined_panels(
     ax_spec.set_xlim(h0, h1)
     for ax in (ax_dtec, ax_lfr, ax_spec):
         ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-        ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
-        ax.grid(True, which="major", linestyle=":", alpha=0.6, zorder=0)
-        ax.grid(True, which="minor", linestyle=":", alpha=0.3, zorder=0)
+        ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
+        ax.grid(True, which="major", linestyle=":", alpha=0.8, zorder=0)
+        ax.grid(True, which="minor", linestyle=":", alpha=0.6, zorder=0)
     
     # =======================================================
     # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
     # =======================================================
-    fig.text(0.99, 0.1, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
+    fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
              horizontalalignment='right', 
              verticalalignment='bottom', 
              fontsize=10, 
-             color='gray', 
+             color='black', 
              alpha=0.7)
     # =======================================================
 
@@ -717,6 +743,119 @@ def run(
 if __name__ == "__main__":
     RUN_MANUALLY = True
     if RUN_MANUALLY:
+    # #--------------------------------------------------------------------------
+    #     print("Running in IDE Manual Mode...")
+
+    #     # 1. Nova estrutura de runs manuais com os pares explícitos
+    #     # manual_runs = [
+    #     #     {
+    #     #         "year": 2022, "doy": 279, "tbeg": 18.5, "tend": 20.0,
+    #     #         "pairs": [
+    #     #             # R12
+    #     #             "msmn · R12", "msnv · R12", "mspm · R12", "prgu · R12", "msaq · R12", "rosa · R12", "tosa · R12",
+    #     #             # G26
+    #     #             "rosa · G26", "itai · G26", "prgu · G26", "msnv · G26", "msgn · G26", "msaq · G26",
+    #     #             # G29
+    #     #             "goja · G29",
+    #     #             # G31
+    #     #             "spdr · G31",
+    #     #             # G23
+    #     #             "smdm · G23", "ipgs · G23", "igm1 · G23", 
+    #     #             # R22
+    #     #             "mtga · R22"
+    #     #         ]
+    #     #     }
+    #     # ]
+        
+    #     # manual_runs = [
+    #     #     {
+    #     #         "year": 2023, "doy": 348, "tbeg": 16.75, "tend": 18.0,
+    #     #         "pairs": [
+    #     #                 "reco · G32",
+    #     #                 "chac · G32",
+    #     #                 "agoo · R04",
+    #     #                 "msgr · G27",
+    #     #                 "msmn · E09",
+    #     #                 "mspm · R17",
+    #     #                 "itai · E09",
+    #     #                 "msgr · E36",
+    #     #                 "mspm · R17",
+    #     #                 "mtle · R18",
+    #     #                 "ojoa · G32",
+    #     #                 "msjr · R17",
+    #     #                 "rosa · R17",
+    #     #                 "scla · E05",
+    #     #                 "sjrp · R18",
+    #     #                 "spar · R18",
+    #     #                 "spar · G27"
+    #     #                 "msjr · R18",
+    #     #                 "msjr · R17",
+    #     #                 "msmj · R17",
+    #     #                 "msmj · R18",
+    #     #             ]
+    #     #     }
+    #     # ]
+        
+    #     manual_runs = [
+    #         {
+    #             "year": 2024, "doy": 333, "tbeg": 14, "tend": 16,
+    #             "pairs": [
+    #                 "each · R24",
+    #                 "ifsc · R24",
+    #                 "mgin · R24",
+    #                 "mgla · R24",
+    #                 "fede · G29",
+    #                 "eesc · R24",
+
+
+    #                 "mgrp · R24",
+    #                 "mspp · R01",
+    #                 "nela · R24",
+    #                 "poli · R24",
+    #                 "puma · G29",
+    #                 "reco · G29",
+    #                 "rspf · G18",
+    #                 "sbal · G29",
+    #                 "scch · G18",
+    #                 "scla · G33",
+    #                 "spcl · R24"
+    #             ]
+    #         }
+    #     ]
+
+    #     LAT_RANGE = (-32.01, -17.99)    
+    #     LON_RANGE = (-62.01, -47.99)    
+    #     LIGHTNING_LAT_RANGE = None    
+    #     LIGHTNING_LON_RANGE = None    
+
+    #     # =========================================================
+    #     # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
+    #     # =========================================================
+    #     FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
+    #     FILTER_MODE = "list"      # ALERTA: Mudado para "list" para aceitar seleção manual
+        
+    #     for run_cfg in manual_runs:
+    #         TIME_RANGE = (run_cfg["tbeg"], run_cfg["tend"])
+            
+    #         run(
+    #             year=run_cfg["year"], doy=run_cfg["doy"],
+    #             lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+    #             dtec_col=None,          
+    #             kind=FIG_KIND,           
+    #             mode=FILTER_MODE,        
+    #             pairs=run_cfg["pairs"],  # <- Passando a lista de pares manualmente aqui
+    #             offset=.50,              
+    #             trh=0.2001,               
+    #             sample_rate_sec=15.0,
+    #             min_period_min=1.2,
+    #             max_period_min=10.0,
+    #             add_spectrogram=True,
+    #             lightning_lat_range=LIGHTNING_LAT_RANGE,
+    #             lightning_lon_range=LIGHTNING_LON_RANGE,
+    #             out_path=None,           
+    #         )
+            
+    #--------------------------------------------------------------------------
         print("Running in IDE Manual Mode...")
 
         # runs = [
@@ -743,21 +882,21 @@ if __name__ == "__main__":
         
         runs = [
             # (2021, 296, 14, 19),
-            (2022, 279, 18, 22),
+            # (2022, 279, 18.25, 20),
             # (2022,  97, 17, 20),
             # (2023, 347, 8, 10),
             # (2023, 347,  15, 17),
             # (2023, 347,  17, 20),
-            (2023, 348,  17, 21),
+            # (2023, 348,  16.75, 18),
             # (2023, 348, 18, 22),
             # (2024, 264,  11, 13),
             # (2024, 264,  13, 15),
             # (2024, 264, 16, 18),
-            # (2024, 264, 18,  21),
+            (2024, 264, 18.5,  20),
             # (2024, 264,  9, 22),
             # (2024, 333,  10, 12),
             # (2024, 333,  12, 14),
-            (2024, 333,  13, 17),
+            # (2024, 333,  14, 16),
             # (2024, 333,  16, 18),
             # (2025, 298,  7, 12),
             # (2025, 298, 18, 21),
@@ -783,18 +922,20 @@ if __name__ == "__main__":
                 dtec_col=None,          
                 kind=FIG_KIND,           
                 mode=FILTER_MODE,        
-                hilbert_threshold=0.05,  
-                offset=0.5,              
-                trh=0.3501,               
+                hilbert_threshold=0.02,  
+                offset=0.4,              
+                trh=0.20001,               
                 sample_rate_sec=15.0,
                 min_period_min=1.2,
                 max_period_min=10.0,
-                min_points=120,
+                min_points=160,
                 add_spectrogram=True,
                 lightning_lat_range=LIGHTNING_LAT_RANGE,
                 lightning_lon_range=LIGHTNING_LON_RANGE,
                 out_path=None,           
             )
+    
+    #--------------------------------------------------------------------------
     else:
         print("Running in CLI Mode...")
         args = parse_arguments()

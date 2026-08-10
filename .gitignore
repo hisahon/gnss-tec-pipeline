@@ -1,13 +1,14 @@
 # --- ambiente ---
 .venv/
 venv/
-figures_overview/
 .env
 
 # --- Python ---
 __pycache__/
 imagens_simple_scatter/
 imagens/
+figures_overview/
+figures_spectra/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
