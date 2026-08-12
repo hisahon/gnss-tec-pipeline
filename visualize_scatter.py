@@ -557,7 +557,6 @@ def plot_pairs_trajectory(
     plt.close(fig)
     print(f"Image saved: {out_path}")
     return out_path
-
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calcula a distância esférica (em km) entre dois pontos na Terra."""
     R = 6371.0 # Raio médio da Terra em km
@@ -575,7 +574,7 @@ def plot_pairs_distance(
     doy: int,
     dtec_col: str = "dtec_15min",
     trh: float | None = None,
-    cmap: str = "Spectral",        # Colormap atualizado para melhor contraste
+    cmap: str = "viridis",
     s: float = 12.0,
     plot_storms: bool = True,
     add_spectrogram: bool = True,
@@ -601,8 +600,6 @@ def plot_pairs_distance(
     eff_lightning_lon_range = lightning_lon_range if lightning_lon_range is not None else eff_lon_range
 
     sub = df.loc[df["pair"].isin(chosen_pairs)].copy()
-    
-    # Ordenar por tempo é essencial para que os arrays batam corretamente
     sub = sub.sort_values("t_hours")
 
     vmax = trh if trh is not None else float(np.nanmax(np.abs(sub[dtec_col])))
@@ -625,7 +622,6 @@ def plot_pairs_distance(
         ].copy()
 
         if not df_storms.empty:
-            # 1. Agrupar centroides do mesmo instante pela média 
             storm_agg = df_storms.groupby('datetime', as_index=False)[['centroid_lon', 'centroid_lat']].mean()
             storm_agg = storm_agg.sort_values('datetime')
             
@@ -633,17 +629,14 @@ def plot_pairs_distance(
             lon_c_arr = storm_agg['centroid_lon'].to_numpy()
             lat_c_arr = storm_agg['centroid_lat'].to_numpy()
 
-            # 2. Aproximação Polinomial (Suavização da trajetória)
-            grau = 2  # Usando grau 2 para capturar a tendência parabólica suave do sistema
+            grau = 2
             coef_lon = np.polyfit(t_hours_storm, lon_c_arr, grau)
             coef_lat = np.polyfit(t_hours_storm, lat_c_arr, grau)
 
-            # 3. Calcular a posição suave projetada para os exatos instantes dos IPPs
             sub_t = sub["t_hours"].to_numpy()
             interp_lon = np.polyval(coef_lon, sub_t)
             interp_lat = np.polyval(coef_lat, sub_t)
 
-            # 4. Calcular distância de Haversine (em km)
             dist_array = haversine_distance(sub[LAT_COL].to_numpy(), sub[LON_COL].to_numpy(), interp_lat, interp_lon)
             print(f"[storms] Trajetória modelada com polinômio de grau {grau}.")
             print(f"[storms] Distância máx: {np.nanmax(dist_array):.1f} km, mín: {np.nanmin(dist_array):.1f} km")
@@ -691,13 +684,33 @@ def plot_pairs_distance(
 
         if spec_result is not None:
             t_hours_spec, freq, power = spec_result
-            cf = ax_spec.contourf(t_hours_spec, freq, power, cmap="nipy_spectral", levels=20)
-            fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.02, label="log10(power)")
-            ax_spec.set_title(f"Wavelet power — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=9)
+            
+            # Normalização (0 a 1)
+            p_min = np.nanmin(power)
+            p_max = np.nanmax(power)
+            if p_max > p_min:
+                power_norm = (power - p_min) / (p_max - p_min)
+            else:
+                power_norm = power
+
+            # Plot sem a barra de cores (colorbar removida)
+            cf = ax_spec.contourf(t_hours_spec, freq, power_norm, cmap="nipy_spectral", levels=20)
+            ax_spec.set_title(f"Wavelet power (Normalized) — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=9)
+            
+            # Eixo Secundário (Período em minutos)
+            def mhz_to_min(f):
+                return 1000.0 / (60.0 * f)
+            def min_to_mhz(t):
+                return 1000.0 / (60.0 * t)
+                
+            secax = ax_spec.secondary_yaxis('right', functions=(mhz_to_min, min_to_mhz))
+            secax.set_ylabel("Period (minutes)")
+            
         else:
             ax_spec.text(0.5, 0.5, "No lightning data / insufficient signal for wavelet", transform=ax_spec.transAxes, ha="center", va="center", fontsize=9)
             ax_spec.set_xticks([])
             ax_spec.set_yticks([])
+            
         ax_spec.set_ylabel("Frequency (mHz)")
 
     # --- Configurações dos Eixos X e Grid ---
@@ -718,7 +731,6 @@ def plot_pairs_distance(
         f"DISTANCE DIAGRAM: {year}-{doy:03d} | MOV. AVG.: {movavg_srt} min | {len(chosen_pairs)} pair(s) | Storm Fit: Poly(2)"
     )
 
-    # Nota lateral semelhante à rotina original
     fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_scatter.py\nFunction: plot_pairs_distance\nStorage: database/ionosphere/keograms_TTDs/', 
              horizontalalignment='right', verticalalignment='bottom', fontsize=10, color='black', alpha=0.7)
 
