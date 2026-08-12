@@ -496,11 +496,14 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
     
     for y in (-20, -30):
         axes[1].axhline(y, color="lime", linewidth=1.2, linestyle="--", zorder=4)
-
+    
+    fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_keo.py\nFunction: plot_keograms_storm_mpl\nStorage: database/ionosphere/keograms_figs/', 
+             horizontalalignment='right', verticalalignment='bottom', fontsize=10, color='red', alpha=1.)
+    
     if out_path is None:
         out_path = dtec_keogram_figs_dir() / f"keogram_{year}{doy:03d}_{resolution}.mpl.png"
 
-    plt.savefig(out_path, dpi=dpi)
+    plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"Image saved: {out_path}")
 
@@ -743,7 +746,7 @@ if __name__ == "__main__":
         #           use_matplotlib=False)
         # matplotlib version (with axes, colorbar, title)
         main_plot(year=year, doy=doy, resolution=resolution,
-                  trh=0.151,
+                  trh=0.101,
                   # trh=1.01,
                   smooth_size=smooth_size,
                   use_matplotlib=True)
