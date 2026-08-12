@@ -446,7 +446,8 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
         f"resolution: {resolutions.get(resolution, 0.1)} deg x 15 sec"
     )
     axes[0].set_ylabel("Longitud, deg")
-    axes[0].set_ylim(LON_RANGE)
+    # axes[0].set_ylim(LON_RANGE)
+    axes[0].set_ylim(extent_lon[2], extent_lon[3])
 
     axes[0].grid(True, linestyle=":", alpha=0.4)
     plt.colorbar(im_lon, ax=axes[0]).set_label("dTEC (TECU)")
@@ -470,7 +471,8 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
     axes[1].set_ylabel("Latitud, deg")
 
     axes[1].set_xlim(0, 24)
-    axes[1].set_ylim(LAT_RANGE)
+    # axes[1].set_ylim(LAT_RANGE)
+    axes[1].set_ylim(extent_lat[2], extent_lat[3])
     axes[1].set_xticks(np.arange(0, 25, 3))
     axes[1].set_xlabel("Time (UTC, hours)")
     axes[1].xaxis.set_minor_locator(ticker.MultipleLocator(1))
@@ -523,25 +525,85 @@ def parse_arguments():
 # ==========================================
 
 
-def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=False):
+# def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=False):
+#     """
+#     Stage 1 — aggregate all station parquets into TWO NetCDF grids
+#     (one for latitude, one for longitude).
+
+#     Skips building any grid whose .nc file already exists on disk,
+#     unless overwrite=True.
+#     """
+#     # Resolution in degrees per pixel
+#     resolutions = {
+#         "low": 0.1,
+#         "high": 0.05,
+#         "veryhigh": 0.025,
+#         "ultra": 0.005}
+
+#     deg_per_px = resolutions.get(resolution, 0.1)
+
+#     plot_height_lat = int((LAT_RANGE[1] - LAT_RANGE[0]) / deg_per_px)
+#     plot_height_lon = int((LON_RANGE[1] - LON_RANGE[0]) / deg_per_px)
+#     ipp_folder      = dtec_ipp_dir(year, doy)
+#     keograms_folder = dtec_keogram_dir(year, doy)
+
+#     # --- Output paths ---
+#     lat_path = keograms_folder / f"keogram_lat_{year}_{doy:03d}_{resolution}.nc"
+#     lon_path = keograms_folder / f"keogram_lon_{year}_{doy:03d}_{resolution}.nc"
+
+#     lat_exists = lat_path.exists()
+#     lon_exists = lon_path.exists()
+
+#     # Nothing to do — both grids already on disk
+#     if lat_exists and lon_exists and not overwrite:
+#         print(f"Both grids already exist for {year} DOY {doy:03d} ({resolution}). Skipping build.")
+#         return
+
+#     parquet_files = sorted(Path(ipp_folder).glob(f"*_dtecIPP_{year}{doy}.parquet"))
+#     if not parquet_files:
+#         print(f"No IPP files found in {ipp_folder}")
+#         return
+#     print(f"Found {len(parquet_files)} station files. Aggregating...")
+
+#     # --- Latitude keogram ---
+#     if lat_exists and not overwrite:
+#         print(f"Lat grid exists, skipping: {lat_path.name}")
+#     else:
+#         print("Building lat keogram...")
+#         agg_lat = build_keogram_grid(
+#             parquet_files, y_col="lts", y_range=LAT_RANGE,
+#             plot_width=5760, plot_height=plot_height_lat, dtec_col=DTEC_COL
+#         )
+#         save_grid(agg_lat, lat_path)
+
+#     # --- Longitude keogram ---
+#     if lon_exists and not overwrite:
+#         print(f"Lon grid exists, skipping: {lon_path.name}")
+#     else:
+#         print("Building lon keogram...")
+#         agg_lon = build_keogram_grid(
+#             parquet_files, y_col="lns", y_range=LON_RANGE,
+#             plot_width=5760, plot_height=plot_height_lon, dtec_col=DTEC_COL
+#         )
+#         save_grid(agg_lon, lon_path)
+
+def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=False, lat_range=None, lon_range=None):
     """
     Stage 1 — aggregate all station parquets into TWO NetCDF grids
     (one for latitude, one for longitude).
-
-    Skips building any grid whose .nc file already exists on disk,
-    unless overwrite=True.
     """
-    # Resolution in degrees per pixel
+    # Fallback para as variáveis globais caso não sejam passadas diretamente
+    if lat_range is None: lat_range = globals().get('LAT_RANGE')
+    if lon_range is None: lon_range = globals().get('LON_RANGE')
+
     resolutions = {
         "low": 0.1,
         "high": 0.05,
         "veryhigh": 0.025,
-        "ultra": 0.005}
-
+        "ultra": 0.005
+    }
     deg_per_px = resolutions.get(resolution, 0.1)
 
-    plot_height_lat = int((LAT_RANGE[1] - LAT_RANGE[0]) / deg_per_px)
-    plot_height_lon = int((LON_RANGE[1] - LON_RANGE[0]) / deg_per_px)
     ipp_folder      = dtec_ipp_dir(year, doy)
     keograms_folder = dtec_keogram_dir(year, doy)
 
@@ -552,7 +614,6 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=Fal
     lat_exists = lat_path.exists()
     lon_exists = lon_path.exists()
 
-    # Nothing to do — both grids already on disk
     if lat_exists and lon_exists and not overwrite:
         print(f"Both grids already exist for {year} DOY {doy:03d} ({resolution}). Skipping build.")
         return
@@ -563,14 +624,37 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=Fal
         return
     print(f"Found {len(parquet_files)} station files. Aggregating...")
 
+    # ==========================================
+    # EXTRAÇÃO DINÂMICA DE LIMITES (MIN/MAX)
+    # ==========================================
+    if lat_range is None or lon_range is None:
+        import dask
+        print("Limites não definidos. Extraindo lat/lon min e max dos dados via Dask...")
+        # Lemos apenas as duas colunas necessárias para não sobrecarregar a memória
+        df_bounds = dd.read_parquet(parquet_files, columns=["lts", "lns"])
+        
+        if lat_range is None:
+            lts_min, lts_max = dask.compute(df_bounds["lts"].min(), df_bounds["lts"].max())
+            lat_range = (float(lts_min), float(lts_max))
+            print(f" -> LAT_RANGE dinâmico: {lat_range}")
+            
+        if lon_range is None:
+            lns_min, lns_max = dask.compute(df_bounds["lns"].min(), df_bounds["lns"].max())
+            lon_range = (float(lns_min), float(lns_max))
+            print(f" -> LON_RANGE dinâmico: {lon_range}")
+    # ==========================================
+
+    plot_height_lat = int((lat_range[1] - lat_range[0]) / deg_per_px)
+    plot_height_lon = int((lon_range[1] - lon_range[0]) / deg_per_px)
+
     # --- Latitude keogram ---
     if lat_exists and not overwrite:
         print(f"Lat grid exists, skipping: {lat_path.name}")
     else:
         print("Building lat keogram...")
         agg_lat = build_keogram_grid(
-            parquet_files, y_col="lts", y_range=LAT_RANGE,
-            plot_width=5760, plot_height=plot_height_lat, dtec_col=DTEC_COL
+            parquet_files, y_col="lts", y_range=lat_range,
+            plot_width=5760, plot_height=plot_height_lat, dtec_col=dtec_col
         )
         save_grid(agg_lat, lat_path)
 
@@ -580,8 +664,8 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=Fal
     else:
         print("Building lon keogram...")
         agg_lon = build_keogram_grid(
-            parquet_files, y_col="lns", y_range=LON_RANGE,
-            plot_width=5760, plot_height=plot_height_lon, dtec_col=DTEC_COL
+            parquet_files, y_col="lns", y_range=lon_range,
+            plot_width=5760, plot_height=plot_height_lon, dtec_col=dtec_col
         )
         save_grid(agg_lon, lon_path)
 
@@ -627,20 +711,25 @@ if __name__ == "__main__":
 
     LAT_RANGE = (-32.01,  -16.99)    # 120° span
     LON_RANGE = (-65.01, -39.99)   # 100° span (Americas)
+    
+    LAT_RANGE = None
+    LON_RANGE = None
+    
     # TIME_RANGE = (0, 24)
 
     # LAT_RANGE = (-25.0,  -20.0)    # 120° span
     # LON_RANGE = (-60, -50.0)   # 100° span (Americas)
-    DTEC_COL = "dtec_15min"
+    DTEC_COL = "dtec_10min"
     movavg_srt = int(re.findall(r'\d+', DTEC_COL)[0])
 
     RUN_MANUALLY = True
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2025, 298
-
-        # resolution = 'high'
-        resolution = 'ultra'
+        year, doy = 2026, 204
+        
+        # resolution = 'low'
+        resolution = 'high'
+        # resolution = 'ultra'
 
         # Vertical smoothing window, in pixels (None = off)
         # smooth_size = None

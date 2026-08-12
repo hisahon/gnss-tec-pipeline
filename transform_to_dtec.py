@@ -596,12 +596,11 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     
-    year, doy = 2021, 300
+    year, doy = 2026, 204
     
     # ---------------------------------------------------------------------------
     # Pipeline parameters
     # ---------------------------------------------------------------------------
-    # SAMPLING_RATE_HZ  = 4 / 60          # 4 samples per minute (15 s sampling)
     DETREND_WIN_MIN  = 10
     DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
     # BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import logging
 import warnings
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -182,15 +183,41 @@ def run(year: int, doy: int, network: str = "both") -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Download (C)RINEX das redes GNSS")
-    p.add_argument("--year", type=int, required=True)
-    p.add_argument("--doy", type=int, required=True, help="Dia do ano (1..366)")
+    
+    # Tornamos year e doy opcionais mudando required=True para help="..."
+    p.add_argument("--year", type=int, help="Ano (ex: 2025)")
+    p.add_argument("--doy", type=int, help="Dia do ano (1..366)")
+    
+    # Novo argumento para a data
+    p.add_argument(
+        "--date", 
+        type=str, 
+        help="Data no formato DD/MM/AAAA (ex: 15/7/2021 ou 15/07/2021)"
+    )
+    
     p.add_argument(
         "--network",
         choices=["rbmc", "ramsac", "both"],
         default="both",
         help="Qual rede baixar (padrão: both).",
     )
-    return p.parse_args()
+    
+    args = p.parse_args()
+
+    # Lógica de validação: processa --date se fornecido, senão exige --year e --doy
+    if args.date:
+        try:
+            # Converte a string "15/7/2021" para um objeto datetime
+            dt = datetime.strptime(args.date, "%d/%m/%Y")
+            # Extrai o ano e o dia do ano (DOY)
+            args.year = dt.year
+            args.doy = dt.timetuple().tm_yday
+        except ValueError:
+            p.error("Formato de data inválido. Use DD/MM/AAAA (ex: 15/7/2021).")
+    elif args.year is None or args.doy is None:
+        p.error("Você deve fornecer o argumento --date OU a combinação de --year e --doy.")
+
+    return args
 
 
 if __name__ == "__main__":

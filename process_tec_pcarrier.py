@@ -412,7 +412,7 @@ def run(year: int, doy: int) -> None:
     lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
 
     if not tec_folder.exists():
-        lg.warning("Pasta de pickles inexistente: %s (rode 03a antes)", tec_folder)
+        lg.warning("Pasta de pickles inexistente: %s (rode make_rinex_pickes antes)", tec_folder)
         return
 
     lg.info("=== 3.2 TEC (pcarrier) [layout long particionado] ===")
