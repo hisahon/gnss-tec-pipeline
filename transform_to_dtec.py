@@ -601,7 +601,7 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------
     # Pipeline parameters
     # ---------------------------------------------------------------------------
-    DETREND_WIN_MIN  = 10
+    DETREND_WIN_MIN  = 15
     DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
     # BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
     BANDPASS_CUTOFFS = (1.11e-3, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s

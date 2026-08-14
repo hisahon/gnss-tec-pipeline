@@ -63,6 +63,39 @@ def smooth_vertical_nan(arr, size, axis=0, treat_zero_as_missing=True):
     return np.divide(num, den, out=np.full_like(arr, np.nan), where=den > 0)
 
 
+# def build_keogram_grid(
+#     parquet_files,
+#     y_col: str,
+#     y_range: tuple,
+#     plot_width: int = 5760,
+#     plot_height: int = 1200,
+#     dtec_col: str = "dtec_30min",
+#     ):
+#     if not parquet_files:
+#         raise FileNotFoundError("No IPP parquet files provided.")
+
+#     df_all = dd.read_parquet(parquet_files, columns=[y_col, dtec_col])
+#     df_all = df_all.dropna(subset=[y_col, dtec_col])
+#     df_all = df_all.reset_index()
+
+#     # ✅ Segundos inteiros: sem divisão de float, sem erro de arredondamento
+#     df_all["t_seconds"] = (
+#         df_all["horario"].dt.hour * 3600
+#         + df_all["horario"].dt.minute * 60
+#         + df_all["horario"].dt.second
+#     ).astype("int32")
+
+#     canvas = ds.Canvas(
+#         plot_width=plot_width,
+#         plot_height=plot_height,
+#         x_range=(0, 86400),   # 0s a 86400s (24h)
+#         y_range=y_range,
+#     )
+
+#     agg = canvas.points(df_all, "t_seconds", y_col, agg=ds.max(dtec_col))
+#     return agg
+
+
 def build_keogram_grid(
     parquet_files,
     y_col: str,
@@ -70,15 +103,18 @@ def build_keogram_grid(
     plot_width: int = 5760,
     plot_height: int = 1200,
     dtec_col: str = "dtec_30min",
-    ):
+):
     if not parquet_files:
         raise FileNotFoundError("No IPP parquet files provided.")
 
+    # 1. Leia apenas as colunas que não são índice
     df_all = dd.read_parquet(parquet_files, columns=[y_col, dtec_col])
     df_all = df_all.dropna(subset=[y_col, dtec_col])
+    
+    # 2. O reset_index() transforma o índice original (horario) em uma coluna
     df_all = df_all.reset_index()
 
-    # ✅ Segundos inteiros: sem divisão de float, sem erro de arredondamento
+    # 3. Agora a coluna "horario" existe para o cálculo dos segundos
     df_all["t_seconds"] = (
         df_all["horario"].dt.hour * 3600
         + df_all["horario"].dt.minute * 60
@@ -88,12 +124,24 @@ def build_keogram_grid(
     canvas = ds.Canvas(
         plot_width=plot_width,
         plot_height=plot_height,
-        x_range=(0, 86400),   # 0s a 86400s (24h)
+        x_range=(0, 86400),   
         y_range=y_range,
     )
 
-    agg = canvas.points(df_all, "t_seconds", y_col, agg=ds.mean(dtec_col))
-    return agg
+    # 1. Mapeia os extremos superiores (picos) e inferiores (depleções)
+    agg_max = canvas.points(df_all, "t_seconds", y_col, agg=ds.max(dtec_col))
+    agg_min = canvas.points(df_all, "t_seconds", y_col, agg=ds.min(dtec_col))
+
+    # 2. Preenche NaNs temporariamente com 0 apenas para a condição booleana
+    # Isso evita avisos de erro (RuntimeWarning) ao comparar NaNs no numpy
+    max_mag = np.abs(agg_max.fillna(0))
+    min_mag = np.abs(agg_min.fillna(0))
+
+    # 3. Combina as matrizes: Retorna agg_max se a magnitude dele for maior, senão agg_min
+    # Como as matrizes originais (agg_max e agg_min) contêm os NaNs, os "buracos" da grade são preservados
+    agg_abs_max = xr.where(max_mag >= min_mag, agg_max, agg_min)
+
+    return agg_abs_max
 
 
 # ==========================================
@@ -460,8 +508,10 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
                        linewidth=storm_linewidth, alpha=storm_alpha,
                        zorder=3, label='Storms')
 
-    for y in (-50, -60):
-        axes[0].axhline(y, color="lime", linewidth=1., linestyle="--", zorder=4)
+    # for y in (-50, -60):
+    # for y in (-43.1788,): #copacabana
+    for y in (-53.57,): #RS
+        axes[0].axhline(y, color="black", linewidth=1., linestyle="--", zorder=4)
     # --- Bottom: Latitud ---
 
     im_lat = axes[1].imshow(
@@ -494,8 +544,10 @@ def plot_keograms_storm_mpl(nc_path_lat: Path, nc_path_lon: Path,
         #                     location='right', shrink=0.6, pad=0.02)
         # cb_s.set_label("min cloud-top T (°C)")
     
-    for y in (-20, -30):
-        axes[1].axhline(y, color="lime", linewidth=1.2, linestyle="--", zorder=4)
+    # for y in (-20, -30):
+    # for y in (-22.9678,): #copacabana
+    for y in (-30.23,): #RS
+        axes[1].axhline(y, color="black", linewidth=1.2, linestyle="--", zorder=4)
     
     fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_keo.py\nFunction: plot_keograms_storm_mpl\nStorage: database/ionosphere/keograms_figs/', 
              horizontalalignment='right', verticalalignment='bottom', fontsize=10, color='red', alpha=1.)
@@ -715,24 +767,27 @@ if __name__ == "__main__":
     LAT_RANGE = (-32.01,  -16.99)    # 120° span
     LON_RANGE = (-65.01, -39.99)   # 100° span (Americas)
     
-    LAT_RANGE = None
-    LON_RANGE = None
+    LAT_RANGE = (-50.01,  -9.99)    # 120° span
+    LON_RANGE = (-70.01, -39.99)   # 100° span (Americas)
+    
+    # LAT_RANGE = None
+    # LON_RANGE = None
     
     # TIME_RANGE = (0, 24)
 
     # LAT_RANGE = (-25.0,  -20.0)    # 120° span
     # LON_RANGE = (-60, -50.0)   # 100° span (Americas)
-    DTEC_COL = "dtec_10min"
+    DTEC_COL = "dtec_15min"
     movavg_srt = int(re.findall(r'\d+', DTEC_COL)[0])
 
     RUN_MANUALLY = True
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2026, 204
+        year, doy = 2026, 202
         
         # resolution = 'low'
         resolution = 'high'
-        # resolution = 'ultra'
+        resolution = 'ultra'
 
         # Vertical smoothing window, in pixels (None = off)
         # smooth_size = None
@@ -746,7 +801,7 @@ if __name__ == "__main__":
         #           use_matplotlib=False)
         # matplotlib version (with axes, colorbar, title)
         main_plot(year=year, doy=doy, resolution=resolution,
-                  trh=0.101,
+                  trh=0.1501,
                   # trh=1.01,
                   smooth_size=smooth_size,
                   use_matplotlib=True)
