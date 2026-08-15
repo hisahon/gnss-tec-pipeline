@@ -9,6 +9,7 @@ imagens_simple_scatter/
 imagens/
 figures_overview/
 figures_spectra/
+ml_model/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
