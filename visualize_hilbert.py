@@ -34,7 +34,7 @@ from shared.lightning_spectrogram import (
 
 
 # ==========================================================================
-#%% 0b. Dedicated output folder for this script's figures
+# 0b. Dedicated output folder for this script's figures
 # ==========================================================================
 def ttd_figs_dir() -> Path:
     folder = Path(dtec_keogram_figs_dir()).parent / "keograms_TTDs"
@@ -52,7 +52,7 @@ PRN_COL  = "prn"         # satellite id column inside each parquet
 
 
 # ==========================================================================
-#%% 1. Load + spatio-temporal cut
+# 1. Load + spatio-temporal cut
 # ==========================================================================
 def _station_from_path(path: Path) -> str:
     return path.name.split("_dtecIPP_")[0]
@@ -140,7 +140,7 @@ def load_window(
 
 
 # ==========================================================================
-#%% 2. Pair selection (Original & Hilbert)
+# 2. Pair selection (Original & Hilbert)
 # ==========================================================================
 
 
@@ -271,7 +271,7 @@ def select_pairs_by_hilbert(
 
 
 # ==========================================================================
-#%% 3. Plotting Functions (Lines, Trajectory, and Combined)
+# 3. Plotting Functions (Lines, Trajectory, and Combined)
 # ==========================================================================
 
 # --- 3A. Simple Line Stack ---
@@ -332,7 +332,7 @@ def plot_pairs_lines(
     return out_path
 
 
-#%%% --- 3B. Trajectory (Original Spatial View) ---
+# --- 3B. Trajectory (Original Spatial View) ---
 def plot_pairs_trajectory(
     df: pd.DataFrame, chosen_pairs: list, year: int, doy: int,
     dtec_col: str = "dtec_15min", trh: float | None = None, cmap: str = "seismic_r", s: float = 12.0, 
@@ -421,7 +421,7 @@ def plot_pairs_trajectory(
     return out_path
 
 
-#%%% --- 3C. New 3-Panel Plot (Line Stack + LFR + Wavelet) ---
+# --- 3C. New 3-Panel Plot (Line Stack + LFR + Wavelet) ---
 
 def _hhmm_to_hours(t):
     """Converte 'HHMM' (ou int equivalente) para hora decimal, ex: '1055' -> 10.9167"""
@@ -684,6 +684,13 @@ def plot_combined_panels(
     plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"Image saved: {out_path}")
+    
+    # Imprime um par por linha
+    for pair in chosen_pairs:
+        print(f'"{pair}",')
+        
+    print("-" * 40) # Linha divisória
+    # =======================================================
     return out_path
 
 
@@ -1029,38 +1036,67 @@ if __name__ == "__main__":
         # #     ]
         # #     }
         # # ]
-
-        # LAT_RANGE = (-32.01, -17.99)    
-        # LON_RANGE = (-62.01, -47.99)    
-        # LIGHTNING_LAT_RANGE = None    
-        # LIGHTNING_LON_RANGE = None    
-
-        # # =========================================================
-        # # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
-        # # =========================================================
-        # FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
-        # FILTER_MODE = "list"      # ALERTA: Mudado para "list" para aceitar seleção manual
         
-        # for run_cfg in manual_runs:
-        #     TIME_RANGE = (run_cfg["tbeg"], run_cfg["tend"])
+        manual_runs = [
+            {
+                "year": 2026, "doy": 204, "tbeg": 16, "tend": 17+40/60,
+                "pairs": [
+                        "caep · R18",
+                        "neia · R18",
+                        "itai · G11",
+                        "rscl · E34",
+                        "rscl · G11",
+                        "scaq · R18",
+                        "scbl · R18",
+                        "stha · R18",
+                        
+                        "stha · G29",
+                        "uyvi · G29",
+                        "itai · R18",
+                        "itai · G29",
+
+                        "prcl · G29",
+                        "puma · G11",
+                        "eesc · G29",
+                        "fosa · R18",
+                        "guai · R18",
+                        "rosa · G29",
+                        "py01 · R18",
+            ]
+            }
+        ]
+
+        LAT_RANGE = (-32.01, -17.99)    
+        LON_RANGE = (-62.01, -47.99)    
+        LIGHTNING_LAT_RANGE = None    
+        LIGHTNING_LON_RANGE = None    
+
+        # =========================================================
+        # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
+        # =========================================================
+        FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
+        FILTER_MODE = "list"      # ALERTA: Mudado para "list" para aceitar seleção manual
+        
+        for run_cfg in manual_runs:
+            TIME_RANGE = (run_cfg["tbeg"], run_cfg["tend"])
             
-        #     run(
-        #         year=run_cfg["year"], doy=run_cfg["doy"],
-        #         lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-        #         dtec_col=None,          
-        #         kind=FIG_KIND,           
-        #         mode=FILTER_MODE,        
-        #         pairs=run_cfg["pairs"],  # <- Passando a lista de pares manualmente aqui
-        #         offset=.30,              
-        #         trh=0.2001,               
-        #         sample_rate_sec=15.0,
-        #         min_period_min=1.2,
-        #         max_period_min=10.0,
-        #         add_spectrogram=True,
-        #         lightning_lat_range=LIGHTNING_LAT_RANGE,
-        #         lightning_lon_range=LIGHTNING_LON_RANGE,
-        #         out_path=None,           
-        #     )
+            run(
+                year=run_cfg["year"], doy=run_cfg["doy"],
+                lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+                dtec_col=None,          
+                kind=FIG_KIND,           
+                mode=FILTER_MODE,        
+                pairs=run_cfg["pairs"],  # <- Passando a lista de pares manualmente aqui
+                offset=.30,              
+                trh=0.2001,               
+                sample_rate_sec=15.0,
+                min_period_min=1.2,
+                max_period_min=10.0,
+                add_spectrogram=True,
+                lightning_lat_range=LIGHTNING_LAT_RANGE,
+                lightning_lon_range=LIGHTNING_LON_RANGE,
+                out_path=None,           
+            )
             
     #--------------------------------------------------------------------------
         print("Running in IDE Manual Mode...")
@@ -1109,57 +1145,45 @@ if __name__ == "__main__":
         #     # (2025, 298, 18, 21),
         # ]
         
-        runs = [
-            # (2023, 347, 8, 10),
-            # (2023, 347, 15, 18),
-            # (2023, 347, 16, 18),
-            
-            # (2024, 264, 11, 13),
-            # (2024, 264, 12, 14),
-            # (2024, 264, 16, 18),
-            # (2024, 264, 18, 20),
-            # (2024, 264, 15.5, 18.5),
-            # (2021, 296, 16, 17),
-            # (2024, 333, 10, 12),
-            
-            # (2026, 202, 10, 15),
-            # (2026, 202, 15, 21),
-            # (2026, 203, 13, 17),
-            (2026, 204, 15, 18),
-                ]
+        # runs = [
+        #     # (2026, 202, 10, 15),
+        #     # (2026, 202, 15, 21),
+        #     # (2026, 203, 13, 17),
+        #     (2026, 204, 15, 18),
+        #         ]
 
-        LAT_RANGE = (-32.01, -17.99)    
-        LON_RANGE = (-62.01, -47.99)    
-        LIGHTNING_LAT_RANGE = None    
-        LIGHTNING_LON_RANGE = None    
+        # LAT_RANGE = (-32.01, -17.99)    
+        # LON_RANGE = (-62.01, -47.99)    
+        # LIGHTNING_LAT_RANGE = None    
+        # LIGHTNING_LON_RANGE = None    
 
-        # =========================================================
-        # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
-        # =========================================================
-        FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
-        FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
+        # # =========================================================
+        # # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
+        # # =========================================================
+        # FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
+        # FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
         
-        for tyear, tdoy, tbeg, tend in runs:
-            TIME_RANGE = (tbeg, tend)
+        # for tyear, tdoy, tbeg, tend in runs:
+        #     TIME_RANGE = (tbeg, tend)
             
-            run(
-                year=tyear, doy=tdoy,
-                lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-                dtec_col=None,          
-                kind=FIG_KIND,           
-                mode=FILTER_MODE,        
-                hilbert_threshold=0.02,  
-                offset=0.25,              
-                trh=0.20001,               
-                sample_rate_sec=15.0,
-                min_period_min=1.2,
-                max_period_min=10.0,
-                min_points=160,
-                add_spectrogram=True,
-                lightning_lat_range=LIGHTNING_LAT_RANGE,
-                lightning_lon_range=LIGHTNING_LON_RANGE,
-                out_path=None,           
-            )
+        #     run(
+        #         year=tyear, doy=tdoy,
+        #         lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+        #         dtec_col=None,          
+        #         kind=FIG_KIND,           
+        #         mode=FILTER_MODE,        
+        #         hilbert_threshold=0.02,  
+        #         offset=0.25,              
+        #         trh=0.20001,               
+        #         sample_rate_sec=15.0,
+        #         min_period_min=1.2,
+        #         max_period_min=10.0,
+        #         min_points=160,
+        #         add_spectrogram=True,
+        #         lightning_lat_range=LIGHTNING_LAT_RANGE,
+        #         lightning_lon_range=LIGHTNING_LON_RANGE,
+        #         out_path=None,           
+        #     )
     
     #--------------------------------------------------------------------------
     else:
