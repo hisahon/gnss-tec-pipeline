@@ -60,6 +60,18 @@ WAV_LAG1   = 0.71
 WAV_MOTHER = "MORLET"
 WAV_FREQ_BOUNDS = [2, 7]    # mHz
 
+# --- NOVO: banda de ressonância observada entre TID e LFR ---
+# Faixa onde você observou acoplamento consistente entre as ondulações do TEC
+# e a taxa de raios. Precisa estar contida em WAV_FREQ_BOUNDS para os dados
+# já calculados cobrirem essa faixa.
+RESONANCE_BAND_MHZ = (2.0, 5.0)
+RESONANCE_ACTIVE_THRESHOLD = 0.5   # potência normalizada [0,1] acima disso = "banda ativa"
+
+# Abaixo disso (fl/min de pico), a janela é considerada "sem chuva de verdade"
+# e não serve como controle negativo — ajuste depois de ver os valores reais
+# que aparecem no print [lfr] para alguns dias do seu dataset.
+MIN_LFR_PEAK_FOR_CONTROL = 1.0
+
 BANDPASS_LOW_MHZ  = 1
 BANDPASS_HIGH_MHZ = 12
 BANDPASS_ORDER    = 4
@@ -80,7 +92,16 @@ FIGURES_OUTPUT_DIR = "ml_model/figures_spectra"
 # --- NOVO: Machine Learning ---
 FEATURES_OUTPUT_DIR = "ml_model/features"    # parquets com as features por rodada
 MODEL_PATH = Path("ml_model/selector.joblib")  # modelo treinado por shared/waveml_train_model.py
-LAG_MINUTES = 9.0                              # atraso TID vs LFR (era hard-coded no plot)
+LAG_MINUTES = 9.0                              # atraso de referência (usado no plot, ~tempo vertical troposfera-ionosfera)
+
+# --- NOVO: varredura de lag como parâmetro, não valor fixo ---
+# 9 min é uma estimativa para propagação vertical pura. Se houver componente
+# horizontal (distância entre a célula convectiva e o IPP), o atraso real
+# tende a ser maior. Em vez de assumir um valor, varremos uma faixa e
+# deixamos o modelo aprender com o lag que de fato maximiza a correlação
+# em cada par — ver _lag_scan_features.
+LAG_SEARCH_RANGE_MIN = (0.0, 20.0)   # faixa de atrasos testados, em minutos
+LAG_SEARCH_STEP_MIN  = 1.0            # resolução da varredura, em minutos
 # Se True, gera figura para TODOS os pares que passam no QC (não só amp > threshold).
 # Útil na fase de coleta de rótulos, para o modelo aprender também exemplos negativos
 # de baixa amplitude. Depois pode voltar para False.
@@ -99,6 +120,16 @@ def _bandpass_filter(data, fs, low_hz, high_hz, order=4):
 
 def _station_from_path(path: Path) -> str:
     return path.name.split("_dtecIPP_")[0]
+
+def hours_to_hhmm(h: float) -> str:
+    """Converte hora decimal em string HHMM. Ex.: 18.5 -> '1830', 18.0 -> '1800'."""
+    total_minutes = int(round(h * 60))
+    hh, mm = divmod(total_minutes, 60)
+    return f"{hh:02d}{mm:02d}"
+
+def time_range_label(TIME_RANGE: tuple) -> str:
+    """Rótulo legível da janela de tempo, formato HHMM-HHMM. Ex.: (18.5, 20) -> '1830-2000'."""
+    return f"{hours_to_hhmm(TIME_RANGE[0])}-{hours_to_hhmm(TIME_RANGE[1])}"
 
 def _detect_dtec_col(file: str, candidates: list[str] | None = None) -> str:
     if candidates is None:
@@ -181,6 +212,20 @@ def prepare_lightning_data(year, doy, eff_lightning_lat, eff_lightning_lon, TIME
             lfr_data["lfr_rate"] = lfr_series.values * 60.0
             lfr_data["t_lfr"] = TIME_RANGE[0] + np.arange(len(lfr_data["lfr_rate"])) * LFR_SAMPLING_RATE / 3600.0
             print("[load] LFR data successfully loaded into memory.")
+
+            # Resumo de atividade — essencial para validar "dias/horários de
+            # controle": aqui só serve como negativo se HOUVE raio de verdade
+            # (senão os campos lfr_*/cross_res_* ficam NaN e não ensinam nada
+            # sobre ausência de acoplamento, só ausência de dado).
+            rate = lfr_data["lfr_rate"]
+            peak = float(np.max(rate))
+            total = float(np.sum(rate) * LFR_SAMPLING_RATE / 60.0)
+            frac_active = float(np.mean(rate > 0))
+            flag = " ⚠ praticamente sem raios nesta janela — NÃO serve como controle " \
+                   "(precisa ter chuva, só sem acoplamento TID observado)." \
+                   if peak < MIN_LFR_PEAK_FOR_CONTROL else ""
+            print(f"[lfr] Atividade nesta janela: pico={peak:.1f} fl/min | "
+                  f"total≈{total:.0f} flashes | {100*frac_active:.0f}% do tempo com algum raio.{flag}")
     except Exception as e:
         print(f"[aviso] Falha ao carregar LFR: {e}")
     return lfr_data
@@ -291,7 +336,170 @@ def compute_spectral_products(t_hours, y_filt, sample_rate_sec, lfr_wavelet: dic
 
 
 # ==========================================================================
-# 2d. NOVO: EXTRAÇÃO DE FEATURES PARA O MODELO
+# 2d. NOVO: HELPERS PARA A BANDA DE RESSONÂNCIA (ex.: 3-4 mHz)
+# ==========================================================================
+def _band_mask(freq: np.ndarray, band: tuple) -> np.ndarray:
+    return (freq >= band[0]) & (freq <= band[1])
+
+
+def _fwhm_bandwidth(freq: np.ndarray, profile: np.ndarray, center_freq: float) -> float:
+    """
+    Largura de banda real (FWHM — largura a meia altura) do pico espectral
+    mais próximo de `center_freq`. Isso é diferente da largura fixa da janela
+    (ex.: 1 mHz, de 3 a 4): aqui medimos o quão largo o pico É DE FATO no
+    espectro daquele par. Um pico estreito sugere uma ressonância bem
+    definida; um pico largo sugere algo mais difuso/banda larga.
+    """
+    if freq is None or profile is None or len(freq) < 3:
+        return np.nan
+    center_idx = int(np.argmin(np.abs(freq - center_freq)))
+    # procura o pico local de verdade numa vizinhança do centro, em vez de
+    # assumir que o bin mais próximo do centro já é o pico
+    radius = max(1, len(freq) // 6)
+    lo, hi = max(0, center_idx - radius), min(len(freq), center_idx + radius + 1)
+    peak_idx = lo + int(np.argmax(profile[lo:hi]))
+    peak_val = profile[peak_idx]
+    if peak_val <= 0:
+        return np.nan
+    half = peak_val / 2.0
+
+    i = peak_idx
+    while i > 0 and profile[i - 1] >= half:
+        i -= 1
+    j = peak_idx
+    while j < len(freq) - 1 and profile[j + 1] >= half:
+        j += 1
+    return float(freq[j] - freq[i])
+
+
+def _band_stats(freq: np.ndarray, power2d: np.ndarray, band: tuple, dt_min: float,
+                active_threshold: float = RESONANCE_ACTIVE_THRESHOLD) -> dict:
+    """
+    Parâmetros de uma banda de frequência específica (ex.: a banda de
+    ressonância 3-4 mHz), a partir de uma matriz de potência normalizada
+    [0,1] com formato (freq x tempo):
+      - pow_mean / pow_max / pow_p95 : intensidade dentro da banda
+      - frac_time_active / duration_min : por quanto tempo a banda ficou ativa
+      - peak_freq_mhz  : frequência de pico dentro da banda
+      - bandwidth_mhz  : largura real (FWHM) do pico espectral mais próximo
+      - share_of_total : fração da potência total (toda a faixa calculada,
+                         ex. 2-7 mHz) que está concentrada nessa banda
+    Também devolve 'time_series' (potência média da banda por instante),
+    reaproveitada depois para correlacionar TID x LFR dentro da banda.
+    """
+    keys = ("pow_mean", "pow_max", "pow_p95", "frac_time_active",
+            "duration_min", "peak_freq_mhz", "bandwidth_mhz", "share_of_total")
+    empty = {**{k: np.nan for k in keys}, "time_series": None}
+    if freq is None or power2d is None:
+        return empty
+
+    mask = _band_mask(freq, band)
+    if not mask.any():
+        return empty
+
+    band_power = power2d[mask, :]
+    profile = power2d.mean(axis=1)               # perfil espectral médio (toda a faixa)
+    # usa o MÁXIMO entre as frequências da banda em cada instante (não a média):
+    # um pico de ressonância estreito, ativo em só algumas frequências da banda,
+    # não pode ser diluído pelo ruído de fundo do restante da janela de 1 mHz.
+    band_time_series = band_power.max(axis=0)
+    active = band_time_series > active_threshold
+    center = (band[0] + band[1]) / 2.0
+
+    return {
+        "pow_mean": float(band_power.mean()),
+        "pow_max": float(band_power.max()),
+        "pow_p95": float(np.percentile(band_power, 95)),
+        "frac_time_active": float(active.mean()),
+        "duration_min": float(active.sum() * dt_min),
+        "peak_freq_mhz": float(freq[mask][int(np.argmax(profile[mask]))]),
+        "bandwidth_mhz": _fwhm_bandwidth(freq, profile, center),
+        "share_of_total": float(profile[mask].sum() / (profile.sum() + 1e-10)),
+        "time_series": band_time_series,
+    }
+
+
+# ==========================================================================
+# 2d2. NOVO: HELPERS PARA A VARREDURA DE LAG (troposfera -> ionosfera)
+# ==========================================================================
+def _lag_response_curve(t_gnss, series_gnss, t_lfr, series_lfr,
+                        lag_range_min: tuple, lag_step_min: float):
+    """
+    Varre uma faixa de lags candidatos e, para cada um, alinha `series_gnss`
+    (deslocada por esse lag) com `series_lfr` na grade do LFR e calcula a
+    correlação entre as duas. Retorna o vetor de lags testados e o vetor de
+    correlações correspondente (NaN onde não houve pontos suficientes).
+    """
+    lags_min = np.arange(lag_range_min[0], lag_range_min[1] + 1e-9, lag_step_min)
+    corrs = np.full(len(lags_min), np.nan)
+    t_lfr_round = np.round(t_lfr, 5)
+    for i, lag in enumerate(lags_min):
+        lag_hours = lag / 60.0
+        t_shift_round = np.round(t_gnss - lag_hours, 5)
+        _, idx_lfr, idx_gnss = np.intersect1d(t_lfr_round, t_shift_round, return_indices=True)
+        if len(idx_lfr) < 10:
+            continue
+        a, b = series_gnss[idx_gnss], series_lfr[idx_lfr]
+        if np.std(a) > 0 and np.std(b) > 0:
+            corrs[i] = np.corrcoef(a, b)[0, 1]
+    return lags_min, corrs
+
+
+def _lag_scan_features(t_gnss, series_gnss, t_lfr, series_lfr,
+                       lag_range_min: tuple, lag_step_min: float,
+                       reference_lag_min: float) -> dict:
+    """
+    Resume a varredura de lag em features:
+      - best_lag_min   : atraso que maximiza |correlação| — a estimativa de
+                         lag "de verdade" para este par, em vez do valor fixo
+      - best_corr      : correlação nesse lag ótimo
+      - corr_at_reference_lag : correlação no lag de referência (LAG_MINUTES),
+                         para comparar com o que aparece na figura
+      - sharpness_min  : largura (em minutos) do pico de correlação ao redor
+                         do lag ótimo — um pico estreito indica um atraso bem
+                         definido; um pico largo indica algo mais ambíguo
+      - n_lags_valid   : quantos lags da varredura puderam ser calculados
+                         (poucos pontos válidos = resultado pouco confiável)
+    """
+    keys = ("best_lag_min", "best_corr", "corr_at_reference_lag",
+            "sharpness_min", "n_lags_valid")
+    empty = {k: np.nan for k in keys}
+    if series_gnss is None or series_lfr is None or t_lfr is None:
+        return empty
+
+    lags, corrs = _lag_response_curve(t_gnss, series_gnss, t_lfr, series_lfr,
+                                      lag_range_min, lag_step_min)
+    valid = ~np.isnan(corrs)
+    if valid.sum() < 3:
+        return empty
+
+    abs_corrs = np.where(valid, np.abs(corrs), -np.inf)
+    best_idx = int(np.argmax(abs_corrs))
+    peak_val = abs_corrs[best_idx]
+    half = peak_val / 2.0
+
+    i = best_idx
+    while i > 0 and valid[i - 1] and abs_corrs[i - 1] >= half:
+        i -= 1
+    j = best_idx
+    while j < len(lags) - 1 and valid[j + 1] and abs_corrs[j + 1] >= half:
+        j += 1
+    sharpness = float(lags[j] - lags[i])
+
+    ref_idx = int(np.argmin(np.abs(lags - reference_lag_min)))
+    corr_ref = float(corrs[ref_idx]) if valid[ref_idx] else np.nan
+
+    return {
+        "best_lag_min": float(lags[best_idx]),
+        "best_corr": float(corrs[best_idx]),
+        "corr_at_reference_lag": corr_ref,
+        "sharpness_min": sharpness,
+        "n_lags_valid": int(valid.sum()),
+    }
+
+
+# ==========================================================================
+# 2e. NOVO: EXTRAÇÃO DE FEATURES PARA O MODELO
 # ==========================================================================
 def extract_features(t_hours, y_filt, env, prod, sample_rate_sec) -> dict:
     """
@@ -374,11 +582,83 @@ def extract_features(t_hours, y_filt, env, prod, sample_rate_sec) -> dict:
                   ("cross_max", "cross_mean", "cross_p95", "cross_frac_gt_03",
                    "cross_frac_gt_05", "cross_freq_at_max_mhz", "corr_env_lfr")})
 
+    # ---- Banda de ressonância (RESONANCE_BAND_MHZ, ex.: 3-4 mHz) ----
+    # Mesmo conjunto de estatísticas do TID e do LFR, mas restrito à banda
+    # onde você observou o acoplamento, mais a força do cruzamento entre
+    # os dois especificamente nessa banda.
+    gnss_dt_min = sample_rate_sec / 60.0
+    lfr_dt_min = LFR_SAMPLING_RATE / 60.0
+
+    tid_band = _band_stats(prod["freq_tid"], prod["power_tid_short_norm"],
+                           RESONANCE_BAND_MHZ, dt_min=gnss_dt_min)
+    lfr_band = _band_stats(prod["freq_lfr"], prod["power_lfr_norm"],
+                           RESONANCE_BAND_MHZ, dt_min=lfr_dt_min)
+
+    for k in ("pow_mean", "pow_max", "pow_p95", "frac_time_active",
+             "duration_min", "peak_freq_mhz", "bandwidth_mhz", "share_of_total"):
+        f[f"tid_res_{k}"] = tid_band[k]
+        f[f"lfr_res_{k}"] = lfr_band[k]
+
+    # cross-wavelet restrito à banda de ressonância (só nas colunas com dado GNSS real)
+    cross_res_keys = ("cross_res_pow_mean", "cross_res_pow_max", "cross_res_pow_p95",
+                      "cross_res_frac_gt_03", "cross_res_frac_gt_05", "cross_res_duration_min")
+    if cp is not None and prod["idx_lfr"] is not None and len(prod["idx_lfr"]) > 0 \
+            and prod["freq_lfr"] is not None:
+        cp_valid_res = cp[:, prod["idx_lfr"]]
+        mask_res = _band_mask(prod["freq_lfr"], RESONANCE_BAND_MHZ)
+        if mask_res.any():
+            cp_res = cp_valid_res[mask_res, :]
+            active_res = cp_res.max(axis=0) > RESONANCE_ACTIVE_THRESHOLD
+            f["cross_res_pow_mean"] = float(cp_res.mean())
+            f["cross_res_pow_max"] = float(cp_res.max())
+            f["cross_res_pow_p95"] = float(np.percentile(cp_res, 95))
+            f["cross_res_frac_gt_03"] = float(np.mean(cp_res > 0.3))
+            f["cross_res_frac_gt_05"] = float(np.mean(cp_res > 0.5))
+            f["cross_res_duration_min"] = float(active_res.sum() * lfr_dt_min)
+        else:
+            f.update({k: np.nan for k in cross_res_keys})
+    else:
+        f.update({k: np.nan for k in cross_res_keys})
+
+    # correlação entre as séries temporais de potência do TID e do LFR,
+    # ambas restritas à banda de ressonância — alinhadas na mesma grade e
+    # com o mesmo lag usado no cross-wavelet (LAG_MINUTES)
+    f["corr_res_tid_lfr"] = np.nan
+    if (tid_band["time_series"] is not None and lfr_band["time_series"] is not None
+            and prod["idx_lfr"] is not None and prod["idx_gnss"] is not None
+            and t_lfr is not None and len(prod["idx_lfr"]) > 10):
+        tid_res_on_lfr_grid = np.full(len(t_lfr), np.nan)
+        tid_res_on_lfr_grid[prod["idx_lfr"]] = tid_band["time_series"][prod["idx_gnss"]]
+        m_res = ~np.isnan(tid_res_on_lfr_grid)
+        if m_res.sum() > 10:
+            a, b = tid_res_on_lfr_grid[m_res], lfr_band["time_series"][m_res]
+            if np.std(a) > 0 and np.std(b) > 0:
+                f["corr_res_tid_lfr"] = float(np.corrcoef(a, b)[0, 1])
+
+    # ---- Varredura de lag troposfera->ionosfera (em vez de valor fixo) ----
+    # 9 min (LAG_MINUTES) é uma referência para propagação vertical pura.
+    # Aqui testamos uma faixa (LAG_SEARCH_RANGE_MIN) e reportamos o lag que
+    # de fato maximiza a correlação em CADA par — um valor bem acima de 9 min
+    # pode ser indício de componente de propagação horizontal até o IPP.
+    # Duas versões: banda larga (envelope x taxa de raios crua) e restrita
+    # à banda de ressonância (mais específica ao fenômeno que você descreveu).
+    lag_broadband = _lag_scan_features(
+        t_hours, env, t_lfr, lfr_rate,
+        LAG_SEARCH_RANGE_MIN, LAG_SEARCH_STEP_MIN, LAG_MINUTES)
+    lag_resband = _lag_scan_features(
+        t_hours, tid_band["time_series"], t_lfr, lfr_band["time_series"],
+        LAG_SEARCH_RANGE_MIN, LAG_SEARCH_STEP_MIN, LAG_MINUTES)
+
+    for k, v in lag_broadband.items():
+        f[f"lag_broadband_{k}"] = v
+    for k, v in lag_resband.items():
+        f[f"lag_res_{k}"] = v
+
     return f
 
 
 # ==========================================================================
-# 2e. NOVO: PONTUAÇÃO COM MODELO TREINADO (se existir)
+# 2f. NOVO: PONTUAÇÃO COM MODELO TREINADO (se existir)
 # ==========================================================================
 def load_model_if_available():
     if MODEL_PATH.exists():
@@ -499,7 +779,7 @@ def plot_spectral_panels(
              horizontalalignment='right', verticalalignment='bottom',
              fontsize=10, color='gray', alpha=0.7)
 
-    pasta_destino = f'{FIGURES_OUTPUT_DIR}/{tyear}{tdoy}_{TIME_RANGE[0]}{TIME_RANGE[1]}'
+    pasta_destino = f'{FIGURES_OUTPUT_DIR}/{tyear}{tdoy}_{time_range_label(TIME_RANGE)}'
     os.makedirs(pasta_destino, exist_ok=True)
 
     # Prefixo com o score: as figuras ficam ordenadas por probabilidade no explorer
@@ -516,7 +796,7 @@ def plot_spectral_panels(
 def make_sample_id(tyear, tdoy, TIME_RANGE, pair) -> str:
     """ID único e estável — é ele que liga a figura à linha do parquet."""
     pair_clean = pair.replace(" · ", "-").replace(" ", "")
-    return f'run_{tyear}{tdoy}{TIME_RANGE[0]}{TIME_RANGE[1]}_{pair_clean}'
+    return f'run_{tyear}{tdoy}_{time_range_label(TIME_RANGE)}_{pair_clean}'
 
 def filter_and_analyze_pairs(
     df, dtec_col, threshold, tyear, tdoy, TIME_RANGE, lfr_data,
@@ -600,7 +880,7 @@ def filter_and_analyze_pairs(
     if not feat_df.empty:
         os.makedirs(FEATURES_OUTPUT_DIR, exist_ok=True)
         out_path = (f'{FEATURES_OUTPUT_DIR}/features_{tyear}{tdoy}'
-                    f'_{TIME_RANGE[0]}{TIME_RANGE[1]}.parquet')
+                    f'_{time_range_label(TIME_RANGE)}.parquet')
         feat_df.to_parquet(out_path, index=False)
         print(f"[analysis] Features salvas em {out_path}")
 
@@ -612,25 +892,24 @@ def filter_and_analyze_pairs(
 # ==========================================================================
 if __name__ == "__main__":
     runs = [
-        # (2021, 296, 14, 19),
-        (2022, 279, 18.5, 20),
-        # (2022,  97, 17, 20),
-        # (2023, 347, 8, 10),
-        # (2023, 347,  15, 17),
-        # (2023, 347,  17, 20),
-        (2023, 348,  17, 21),
-        # (2023, 348, 18, 22),
-        # (2024, 264,  11, 13),
-        # (2024, 264,  13, 15),
-        # (2024, 264, 16, 18),
-        # (2024, 264, 18,  21),
-        # (2024, 264,  9, 22),
-        # (2024, 333,  10, 12),
-        # (2024, 333,  12, 14),
-        (2024, 333,  13, 17),
-        # (2024, 333,  16, 18),
-        # (2025, 298,  7, 12),
-        # (2025, 298, 18, 21),
+        # ---- dias já rotulados (com evento) — horário estendido para pegar
+        # negativos "do mesmo contexto", horas antes/depois do evento ----
+        # (2024, 333, 13, 17),      # era (18.5, 20) — janela ampliada
+        # (2023, 347, 6, 12),      # era (17, 21) — janela ampliada
+        # (2023, 347, 6, 18),      # era (17, 21) — janela ampliada
+        (2021, 296, 15, 18),      # era (17, 21) — janela ampliada
+
+        # ---- dias/janelas de controle: PRECISAM ter chuva/raios de verdade
+        # na região (LFR ativo — confira o print [lfr] no terminal ao rodar),
+        # só sem acoplamento TID observado por você. Um dia sem chuva NÃO
+        # serve: os campos lfr_*/cross_res_* ficam NaN e não ensinam nada
+        # sobre ausência de acoplamento, só ausência de dado. Isso não tem
+        # relação com índice geomagnético (Kp/Dst) — é sobre convecção local.
+        # (2024, 50, 8, 22),
+        # (2024, 150, 8, 22),
+        # (2024, 200, 8, 22),
+        # (2023, 100, 8, 22),
+        # (2023, 200, 8, 22),
     ]
 
     ml_bundle = load_model_if_available()

@@ -767,7 +767,7 @@ if __name__ == "__main__":
     LAT_RANGE = (-32.01,  -16.99)    # 120° span
     LON_RANGE = (-65.01, -39.99)   # 100° span (Americas)
     
-    LAT_RANGE = (-50.01,  -9.99)    # 120° span
+    LAT_RANGE = (-43.01,  -9.99)    # 120° span
     LON_RANGE = (-70.01, -39.99)   # 100° span (Americas)
     
     # LAT_RANGE = None
@@ -783,7 +783,7 @@ if __name__ == "__main__":
     RUN_MANUALLY = True
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
-        year, doy = 2026, 202
+        year, doy = 2026, 204
         
         # resolution = 'low'
         resolution = 'high'

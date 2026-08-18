@@ -34,7 +34,7 @@ from shared.lightning_spectrogram import (
 
 
 # ==========================================================================
-# 0b. Dedicated output folder for this script's figures
+#%% 0b. Dedicated output folder for this script's figures
 # ==========================================================================
 def ttd_figs_dir() -> Path:
     folder = Path(dtec_keogram_figs_dir()).parent / "keograms_TTDs"
@@ -52,7 +52,7 @@ PRN_COL  = "prn"         # satellite id column inside each parquet
 
 
 # ==========================================================================
-# 1. Load + spatio-temporal cut
+#%% 1. Load + spatio-temporal cut
 # ==========================================================================
 def _station_from_path(path: Path) -> str:
     return path.name.split("_dtecIPP_")[0]
@@ -140,7 +140,7 @@ def load_window(
 
 
 # ==========================================================================
-# 2. Pair selection (Original & Hilbert)
+#%% 2. Pair selection (Original & Hilbert)
 # ==========================================================================
 
 
@@ -271,7 +271,7 @@ def select_pairs_by_hilbert(
 
 
 # ==========================================================================
-# 3. Plotting Functions (Lines, Trajectory, and Combined)
+#%% 3. Plotting Functions (Lines, Trajectory, and Combined)
 # ==========================================================================
 
 # --- 3A. Simple Line Stack ---
@@ -332,7 +332,7 @@ def plot_pairs_lines(
     return out_path
 
 
-# --- 3B. Trajectory (Original Spatial View) ---
+#%%% --- 3B. Trajectory (Original Spatial View) ---
 def plot_pairs_trajectory(
     df: pd.DataFrame, chosen_pairs: list, year: int, doy: int,
     dtec_col: str = "dtec_15min", trh: float | None = None, cmap: str = "seismic_r", s: float = 12.0, 
@@ -421,8 +421,38 @@ def plot_pairs_trajectory(
     return out_path
 
 
-# --- 3C. New 3-Panel Plot (Line Stack + LFR + Wavelet) ---
-# --- 3C. New 3-Panel Plot (Line Stack + LFR + Wavelet) ---
+#%%% --- 3C. New 3-Panel Plot (Line Stack + LFR + Wavelet) ---
+
+def _hhmm_to_hours(t):
+    """Converte 'HHMM' (ou int equivalente) para hora decimal, ex: '1055' -> 10.9167"""
+    t = str(t).zfill(4)
+    hh, mm = int(t[:2]), int(t[2:])
+    return hh + mm / 60
+
+
+def _add_time_markers(ax, times, color="blue", lw=2, ls="--", zorder=10):
+    """Desenha axvlines a partir de horários 'HHMM' (ex: '1055')."""
+    if not times:
+        return
+    for t in times:
+        ax.axvline(x=_hhmm_to_hours(t), color=color, lw=lw, ls=ls, zorder=zorder)
+
+
+def _add_time_spans(ax, spans, color="blue", alpha=0.2, zorder=5):
+    """Destaca intervalos de tempo com área sombreada (axvspan)."""
+    if not spans:
+        return
+    for span in spans:
+        if isinstance(span, str):
+            t_ini, t_fim = span.split("-")
+        else:
+            t_ini, t_fim = span
+        ax.axvspan(_hhmm_to_hours(t_ini), _hhmm_to_hours(t_fim), color=color, alpha=alpha, zorder=zorder)
+
+
+
+    
+
 def plot_combined_panels(
     df: pd.DataFrame, chosen_pairs: list, year: int, doy: int,
     dtec_col: str = "dtec_15min", offset: float = 1.0, cmap_name: str = "tab20", 
@@ -588,6 +618,21 @@ def plot_combined_panels(
     #     ax.grid(True, which="minor", axis="both", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
     #     ax.grid(True, which="major", axis="y", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
     
+    #%% Vertical lines
+    #2026 202 1000-1500
+    markers = "1025 1055 1145 1202 1310".split()
+    
+    #2026 202 1500-2100
+    markers = "1510 1555 1650 1740 1800 1900 2000".split() 
+    
+    #2026 203 1300-1700
+    markers = "1305 1430 1500 1630".split() 
+    
+    #2026 204 1500-2100
+    markers = "1600 1635 1705".split() 
+    
+    #% Times spans
+    spans = None
     
     for ax in (ax_dtec, ax_lfr, ax_spec):
             ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
@@ -596,6 +641,14 @@ def plot_combined_panels(
             ax.grid(True, which="both", color="gray", lw=0.6, ls=":", alpha=0.6, zorder=0)
             ax.grid(True, which="major", axis="x", color="black", lw=1.0, ls="--", alpha=1.0, zorder=0)
             
+            _add_time_markers(ax, markers)
+            _add_time_spans(ax, spans)
+            
+            
+            
+
+
+    
             # ax.axvline(x=15.+50/60, color="blue", lw=1, ls="--", zorder=10)
             # ax.axvline(x=16.+33/60, color="blue", lw=1, ls="--", zorder=10)
             # ax.axvline(x=17.+ 18/60, color="blue", lw=1, ls="--", zorder=10)
@@ -613,6 +666,9 @@ def plot_combined_panels(
             # ax.axvline(x=16. + 32/60, color="blue", lw=2, ls="--", zorder=10)
             # ax.axvline(x=9. + 4/60, color="blue", lw=2, ls="--", zorder=10)
             # ax.axvline(x=9. + 21/60, color="blue", lw=2, ls="--", zorder=10)
+            
+            
+            
     # =======================================================
     # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
     # =======================================================
@@ -632,7 +688,7 @@ def plot_combined_panels(
 
 
 # ==========================================================================
-# 4. CLI parsing
+#%% 4. CLI parsing
 # ==========================================================================
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Scatter dTEC IPPs & Lightning correlation.")
@@ -659,7 +715,7 @@ def parse_arguments():
 
 
 # ==========================================================================
-# 5. Entry point
+#%% 5. Entry point
 # ==========================================================================
 def run(
     year, doy, lat_range, lon_range, time_range,
@@ -771,208 +827,306 @@ if __name__ == "__main__":
     RUN_MANUALLY = True
     if RUN_MANUALLY:
     #--------------------------------------------------------------------------
-        print("Running in IDE Manual Mode...")
+        # print("Running in IDE Manual Mode...")
 
-        # 1. Nova estrutura de runs manuais com os pares explícitos
-        # manual_runs = [
-        #     {
-        #         "year": 2022, "doy": 279, "tbeg": 18.5, "tend": 20.0,
-        #         "pairs": [
-        #             # R12
-        #             "msmn · R12", "msnv · R12", "mspm · R12", "prgu · R12", "msaq · R12", "rosa · R12", "tosa · R12",
-        #             # G26
-        #             "rosa · G26", "itai · G26", "prgu · G26", "msnv · G26", "msgn · G26", "msaq · G26",
-        #             # G29
-        #             "goja · G29",
-        #             # G31
-        #             "spdr · G31",
-        #             # G23
-        #             "smdm · G23", "ipgs · G23", "igm1 · G23", 
-        #             # R22
-        #             "mtga · R22"
-        #         ]
-        #     }
-        # ]
+        # # 1. Nova estrutura de runs manuais com os pares explícitos
+        # # manual_runs = [
+        # #     {
+        # #         "year": 2022, "doy": 279, "tbeg": 18.5, "tend": 20.0,
+        # #         "pairs": [
+        # #             # R12
+        # #             "msmn · R12", "msnv · R12", "mspm · R12", "prgu · R12", "msaq · R12", "rosa · R12", "tosa · R12",
+        # #             # G26
+        # #             "rosa · G26", "itai · G26", "prgu · G26", "msnv · G26", "msgn · G26", "msaq · G26",
+        # #             # G29
+        # #             "goja · G29",
+        # #             # G31
+        # #             "spdr · G31",
+        # #             # G23
+        # #             "smdm · G23", "ipgs · G23", "igm1 · G23", 
+        # #             # R22
+        # #             "mtga · R22"
+        # #         ]
+        # #     }
+        # # ]
+        
+        # # manual_runs = [
+        # #     {
+        # #         "year": 2023, "doy": 348, "tbeg": 16.75, "tend": 18.0,
+        # #         "pairs": [
+        # #                 "reco · G32",
+        # #                 "chac · G32",
+        # #                 "agoo · R04",
+        # #                 "msgr · G27",
+        # #                 "msmn · E09",
+        # #                 "mspm · R17",
+        # #                 "itai · E09",
+        # #                 "msgr · E36",
+        # #                 "mspm · R17",
+        # #                 "mtle · R18",
+        # #                 "ojoa · G32",
+        # #                 "msjr · R17",
+        # #                 "rosa · R17",
+        # #                 "scla · E05",
+        # #                 "sjrp · R18",
+        # #                 "spar · R18",
+        # #                 "spar · G27"
+        # #                 "msjr · R18",
+        # #                 "msjr · R17",
+        # #                 "msmj · R17",
+        # #                 "msmj · R18",
+        # #             ]
+        # #     }
+        # # ]
+        
+        # # manual_runs = [
+        # #     {
+        # #         "year": 2024, "doy": 333, "tbeg": 14, "tend": 16,
+        # #         "pairs": [
+        # #             "each · R24",
+        # #             "ifsc · R24",
+        # #             "mgin · R24",
+        # #             "mgla · R24",
+        # #             "fede · G29",
+        # #             "eesc · R24",
+
+
+        # #             "mgrp · R24",
+        # #             "mspp · R01",
+        # #             "nela · R24",
+        # #             "poli · R24",
+        # #             "puma · G29",
+        # #             "reco · G29",
+        # #             "rspf · G18",
+        # #             "sbal · G29",
+        # #             "scch · G18",
+        # #             "scla · G33",
+        # #             "spcl · R24"
+        # #         ]
+        # #     }
+        # # ]
+        
+        # # manual_runs = [
+        # #     {
+        # #         "year": 2022, "doy": 97, "tbeg": 17, "tend": 19,
+        # #         "pairs": [
+        # #             # "ufpr · G07",
+        # #             "sptu · G07",
+        # #             "spor · G07",
+        # #             "spli · G07",
+        # #             "ppte · G07",
+        # #             "msmj · G07",
+        # #             "msjr · G07",
+        # #             "spdr · R15",
+        # #             # "puma · R15",
+        # #             "ppte · R15",
+        # #             # "msnv · R15",
+        # #             "scfi · G06",
+        # #             # "scaq · G06",
+        # #             "rsfp · E19",
+        # #             # "prur · R14",
+        # #             "msgr · R14",
+        # #             "msmg · G16",
+        # #             "msmg · G07",
+        # #             "ifsc · G06"
+        # #         ]
+        # #     }
+        # # ]
         
         # manual_runs = [
         #     {
-        #         "year": 2023, "doy": 348, "tbeg": 16.75, "tend": 18.0,
+        #         "year": 2023, "doy": 347, "tbeg": 7.5, "tend": 10,
         #         "pairs": [
-        #                 "reco · G32",
-        #                 "chac · G32",
-        #                 "agoo · R04",
-        #                 "msgr · G27",
-        #                 "msmn · E09",
-        #                 "mspm · R17",
-        #                 "itai · E09",
-        #                 "msgr · E36",
-        #                 "mspm · R17",
-        #                 "mtle · R18",
-        #                 "ojoa · G32",
-        #                 "msjr · R17",
-        #                 "rosa · R17",
-        #                 "scla · E05",
-        #                 "sjrp · R18",
-        #                 "spar · R18",
-        #                 "spar · G27"
-        #                 "msjr · R18",
-        #                 "msjr · R17",
-        #                 "msmj · R17",
-        #                 "msmj · R18",
+                        
+                        
+        #                 # "uyar · G11",
+        #                 "uyar · G06",
+        #                 # "unsa · G06",
+                        
+        #                 "tilc · G06",
+        #                 "uybu · G06",
+        #                 "meco · G06",
+        #                 "sjsp · G15",
+        #                 "teru · G11",
+                        
+        #                 "tava · G06",
+
+        #                 "sur1 · G06",
+                        
+                        
+        #                 "rcro · E36",
+        #                 "cata · G11",
+        #                 "rcro · G11",
+        #                 "tucu · G11",
+        #                 "rcro · E11",
+                        
+        #                 "puma · G06",
+        #                 "puma · R21",
+        #                 "tava · G11",
+        #                 "ojoa · G11",
+                        
+                        
+        #                 "jvgo · G06",
+        #                 "jvch · G11",
+        #                 "jbal · G11",
+        #                 "chac · R21",
+                        
+                        
+        #                 "caep · G11",
+        #                 "caep · G06",
+        #                 "reco · G06",
+        #                 "puma · G11",
+        #                 "jvgo · G11",
+        #                 "yema · G06",
+        #                 "caep · R21",
+        #                 "tatu · G11",
+        #                 "tatu · G06",
+        #                 "caep · R22"
         #             ]
         #     }
         # ]
         
-        # manual_runs = [
-        #     {
-        #         "year": 2024, "doy": 333, "tbeg": 14, "tend": 16,
-        #         "pairs": [
-        #             "each · R24",
-        #             "ifsc · R24",
-        #             "mgin · R24",
-        #             "mgla · R24",
-        #             "fede · G29",
-        #             "eesc · R24",
+        # # manual_runs = [
+        # #     {
+        # #         "year": 2023, "doy": 347, "tbeg": 15, "tend": 18,
+        # #         "pairs": [
+        # #         # "yema · G23",
+        # #         # "uba1 · G26",
+        # #         # "tatu · G32",
+        # #         "tatu · G23",
+        # #         "spdr · R01",
+        # #         "rosa · R17",
+        # #         "rosa · E13",
+        # #         "rcro · E03",
+        # #         "py01 · R02",
+        # #         "py01 · G10",
+        # #         # "puma · G32",
+        # #         "puma · R02",
+        # #         "prur · G27",
+        # #         "prgu · E13",
+        # #         "prcl · E13",
+        # #         "mspp · R17",
+        # #         "mspp · G27",
+        # #         # "mspp · E03",
+        # #         "msnv · R17",
+        # #         "msnv · G27",
+        # #         # "msnv · R02",
+        # #         # "msmn · R02",
+        # #         "msmn · E13",
+        # #         "msmj · R17",
+        # #         "msmj · G27",
+        # #         "msjr · R17",
+        # #         # "msjr · R02",
+        # #         # "msjr · R01",
+        # #         "msdr · R17",
+        # #         "msbl · G27",
+        # #         "msbl · R17",
+        # #         "msbl · G27",
+        # #         "itai · E13",
+        # #         "guai · R17",
+        # #         "guai · G27",
+        # #         "guai · E13"
+        # #     ]
+        # #     }
+        # # ]
 
+        # LAT_RANGE = (-32.01, -17.99)    
+        # LON_RANGE = (-62.01, -47.99)    
+        # LIGHTNING_LAT_RANGE = None    
+        # LIGHTNING_LON_RANGE = None    
 
-        #             "mgrp · R24",
-        #             "mspp · R01",
-        #             "nela · R24",
-        #             "poli · R24",
-        #             "puma · G29",
-        #             "reco · G29",
-        #             "rspf · G18",
-        #             "sbal · G29",
-        #             "scch · G18",
-        #             "scla · G33",
-        #             "spcl · R24"
-        #         ]
-        #     }
+        # # =========================================================
+        # # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
+        # # =========================================================
+        # FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
+        # FILTER_MODE = "list"      # ALERTA: Mudado para "list" para aceitar seleção manual
+        
+        # for run_cfg in manual_runs:
+        #     TIME_RANGE = (run_cfg["tbeg"], run_cfg["tend"])
+            
+        #     run(
+        #         year=run_cfg["year"], doy=run_cfg["doy"],
+        #         lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+        #         dtec_col=None,          
+        #         kind=FIG_KIND,           
+        #         mode=FILTER_MODE,        
+        #         pairs=run_cfg["pairs"],  # <- Passando a lista de pares manualmente aqui
+        #         offset=.30,              
+        #         trh=0.2001,               
+        #         sample_rate_sec=15.0,
+        #         min_period_min=1.2,
+        #         max_period_min=10.0,
+        #         add_spectrogram=True,
+        #         lightning_lat_range=LIGHTNING_LAT_RANGE,
+        #         lightning_lon_range=LIGHTNING_LON_RANGE,
+        #         out_path=None,           
+        #     )
+            
+    #--------------------------------------------------------------------------
+        print("Running in IDE Manual Mode...")
+
+        # runs = [
+        #     # (2021, 296, 14, 19),
+        #     (2022, 279, 18, 22),
+        #     (2022,  97, 17, 20),
+        #     (2023, 347, 8, 10),
+        #     (2023, 347,  15, 17),
+        #     (2023, 347,  17, 20),
+        #     (2023, 348,  17, 21),
+        #     # (2023, 348, 18, 22),
+        #     (2024, 264,  11, 13),
+        #     (2024, 264,  13, 15),
+        #     (2024, 264, 16, 18),
+        #     (2024, 264, 18,  21),
+        #     # (2024, 264,  9, 22),
+        #     (2024, 333,  10, 12),
+        #     (2024, 333,  12, 14),
+        #     (2024, 333,  14, 16),
+        #     (2024, 333,  16, 18),
+        #     # (2025, 298,  7, 12),
+        #     # (2025, 298, 18, 21),
         # ]
         
-        # manual_runs = [
-        #     {
-        #         "year": 2022, "doy": 97, "tbeg": 17, "tend": 19,
-        #         "pairs": [
-        #             # "ufpr · G07",
-        #             "sptu · G07",
-        #             "spor · G07",
-        #             "spli · G07",
-        #             "ppte · G07",
-        #             "msmj · G07",
-        #             "msjr · G07",
-        #             "spdr · R15",
-        #             # "puma · R15",
-        #             "ppte · R15",
-        #             # "msnv · R15",
-        #             "scfi · G06",
-        #             # "scaq · G06",
-        #             "rsfp · E19",
-        #             # "prur · R14",
-        #             "msgr · R14",
-        #             "msmg · G16",
-        #             "msmg · G07",
-        #             "ifsc · G06"
-        #         ]
-        #     }
+        # runs = [
+        #     # (2021, 296, 14, 19),
+        #     # (2022, 279, 18.25, 20),
+        #     (2022,  97, 17, 19),
+        #     # (2023, 347, 8, 10),
+        #     # (2023, 347,  15, 17),
+        #     # (2023, 347,  17, 20),
+        #     # (2023, 348,  16.75, 18),
+        #     # (2023, 348, 18, 22),
+        #     # (2024, 264,  11, 13),
+        #     # (2024, 264,  13, 15),
+        #     # (2024, 264, 16, 18),
+        #     # (2024, 264, 18.5,  20),
+        #     # (2024, 264,  9, 22),
+        #     # (2024, 333,  10, 12),
+        #     # (2024, 333,  12, 14),
+        #     # (2024, 333,  14, 16),
+        #     # (2024, 333,  16, 18),
+        #     # (2025, 298,  7, 12),
+        #     # (2025, 298, 18, 21),
         # ]
         
-        manual_runs = [
-            {
-                "year": 2023, "doy": 347, "tbeg": 7.5, "tend": 10,
-                "pairs": [
-                        
-                        
-                        # "uyar · G11",
-                        "uyar · G06",
-                        # "unsa · G06",
-                        
-                        "tilc · G06",
-                        "uybu · G06",
-                        "meco · G06",
-                        "sjsp · G15",
-                        "teru · G11",
-                        
-                        "tava · G06",
-
-                        "sur1 · G06",
-                        
-                        
-                        "rcro · E36",
-                        "cata · G11",
-                        "rcro · G11",
-                        "tucu · G11",
-                        "rcro · E11",
-                        
-                        "puma · G06",
-                        "puma · R21",
-                        "tava · G11",
-                        "ojoa · G11",
-                        
-                        
-                        "jvgo · G06",
-                        "jvch · G11",
-                        "jbal · G11",
-                        "chac · R21",
-                        
-                        
-                        "caep · G11",
-                        "caep · G06",
-                        "reco · G06",
-                        "puma · G11",
-                        "jvgo · G11",
-                        "yema · G06",
-                        "caep · R21",
-                        "tatu · G11",
-                        "tatu · G06",
-                        "caep · R22"
-                    ]
-            }
-        ]
-        
-        # manual_runs = [
-        #     {
-        #         "year": 2023, "doy": 347, "tbeg": 15, "tend": 18,
-        #         "pairs": [
-        #         # "yema · G23",
-        #         # "uba1 · G26",
-        #         # "tatu · G32",
-        #         "tatu · G23",
-        #         "spdr · R01",
-        #         "rosa · R17",
-        #         "rosa · E13",
-        #         "rcro · E03",
-        #         "py01 · R02",
-        #         "py01 · G10",
-        #         # "puma · G32",
-        #         "puma · R02",
-        #         "prur · G27",
-        #         "prgu · E13",
-        #         "prcl · E13",
-        #         "mspp · R17",
-        #         "mspp · G27",
-        #         # "mspp · E03",
-        #         "msnv · R17",
-        #         "msnv · G27",
-        #         # "msnv · R02",
-        #         # "msmn · R02",
-        #         "msmn · E13",
-        #         "msmj · R17",
-        #         "msmj · G27",
-        #         "msjr · R17",
-        #         # "msjr · R02",
-        #         # "msjr · R01",
-        #         "msdr · R17",
-        #         "msbl · G27",
-        #         "msbl · R17",
-        #         "msbl · G27",
-        #         "itai · E13",
-        #         "guai · R17",
-        #         "guai · G27",
-        #         "guai · E13"
-        #     ]
-        #     }
-        # ]
+        runs = [
+            # (2023, 347, 8, 10),
+            # (2023, 347, 15, 18),
+            # (2023, 347, 16, 18),
+            
+            # (2024, 264, 11, 13),
+            # (2024, 264, 12, 14),
+            # (2024, 264, 16, 18),
+            # (2024, 264, 18, 20),
+            # (2024, 264, 15.5, 18.5),
+            # (2021, 296, 16, 17),
+            # (2024, 333, 10, 12),
+            
+            # (2026, 202, 10, 15),
+            # (2026, 202, 15, 21),
+            # (2026, 203, 13, 17),
+            (2026, 204, 15, 18),
+                ]
 
         LAT_RANGE = (-32.01, -17.99)    
         LON_RANGE = (-62.01, -47.99)    
@@ -983,122 +1137,29 @@ if __name__ == "__main__":
         # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
         # =========================================================
         FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
-        FILTER_MODE = "list"      # ALERTA: Mudado para "list" para aceitar seleção manual
+        FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
         
-        for run_cfg in manual_runs:
-            TIME_RANGE = (run_cfg["tbeg"], run_cfg["tend"])
+        for tyear, tdoy, tbeg, tend in runs:
+            TIME_RANGE = (tbeg, tend)
             
             run(
-                year=run_cfg["year"], doy=run_cfg["doy"],
+                year=tyear, doy=tdoy,
                 lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
                 dtec_col=None,          
                 kind=FIG_KIND,           
                 mode=FILTER_MODE,        
-                pairs=run_cfg["pairs"],  # <- Passando a lista de pares manualmente aqui
-                offset=.30,              
-                trh=0.2001,               
+                hilbert_threshold=0.02,  
+                offset=0.25,              
+                trh=0.20001,               
                 sample_rate_sec=15.0,
                 min_period_min=1.2,
                 max_period_min=10.0,
+                min_points=160,
                 add_spectrogram=True,
                 lightning_lat_range=LIGHTNING_LAT_RANGE,
                 lightning_lon_range=LIGHTNING_LON_RANGE,
                 out_path=None,           
             )
-            
-    #--------------------------------------------------------------------------
-        # print("Running in IDE Manual Mode...")
-
-        # # runs = [
-        # #     # (2021, 296, 14, 19),
-        # #     (2022, 279, 18, 22),
-        # #     (2022,  97, 17, 20),
-        # #     (2023, 347, 8, 10),
-        # #     (2023, 347,  15, 17),
-        # #     (2023, 347,  17, 20),
-        # #     (2023, 348,  17, 21),
-        # #     # (2023, 348, 18, 22),
-        # #     (2024, 264,  11, 13),
-        # #     (2024, 264,  13, 15),
-        # #     (2024, 264, 16, 18),
-        # #     (2024, 264, 18,  21),
-        # #     # (2024, 264,  9, 22),
-        # #     (2024, 333,  10, 12),
-        # #     (2024, 333,  12, 14),
-        # #     (2024, 333,  14, 16),
-        # #     (2024, 333,  16, 18),
-        # #     # (2025, 298,  7, 12),
-        # #     # (2025, 298, 18, 21),
-        # # ]
-        
-        # # runs = [
-        # #     # (2021, 296, 14, 19),
-        # #     # (2022, 279, 18.25, 20),
-        # #     (2022,  97, 17, 19),
-        # #     # (2023, 347, 8, 10),
-        # #     # (2023, 347,  15, 17),
-        # #     # (2023, 347,  17, 20),
-        # #     # (2023, 348,  16.75, 18),
-        # #     # (2023, 348, 18, 22),
-        # #     # (2024, 264,  11, 13),
-        # #     # (2024, 264,  13, 15),
-        # #     # (2024, 264, 16, 18),
-        # #     # (2024, 264, 18.5,  20),
-        # #     # (2024, 264,  9, 22),
-        # #     # (2024, 333,  10, 12),
-        # #     # (2024, 333,  12, 14),
-        # #     # (2024, 333,  14, 16),
-        # #     # (2024, 333,  16, 18),
-        # #     # (2025, 298,  7, 12),
-        # #     # (2025, 298, 18, 21),
-        # # ]
-        
-        # runs = [
-        #     # (2023, 347, 8, 10),
-        #     # (2023, 347, 15, 18),
-        #     # (2023, 347, 16, 18),
-            
-        #     # (2024, 264, 11, 13),
-        #     # (2024, 264, 12, 14),
-        #     # (2024, 264, 16, 18),
-        #     # (2024, 264, 18, 20),
-        #     (2024, 264, 15.5, 18.5),
-            
-        #     # (2024, 333, 10, 12),
-        #         ]
-
-        # LAT_RANGE = (-32.01, -17.99)    
-        # LON_RANGE = (-62.01, -47.99)    
-        # LIGHTNING_LAT_RANGE = None    
-        # LIGHTNING_LON_RANGE = None    
-
-        # =========================================================
-        # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
-        # =========================================================
-        # FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
-        # FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
-        
-        # for tyear, tdoy, tbeg, tend in runs:
-        #     TIME_RANGE = (tbeg, tend)
-            
-        #     run(
-        #         year=tyear, doy=tdoy,
-        #         lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-        #         dtec_col=None,          
-        #         kind=FIG_KIND,           
-        #         mode=FILTER_MODE,        
-        #         hilbert_threshold=0.02,  
-        #         offset=0.25,              
-        #         trh=0.20001,               
-        #         sample_rate_sec=15.0,
-        #         min_period_min=1.2,
-        #         max_period_min=10.0,
-        #         min_points=160,
-        #         add_spectrogram=True,
-        #         lightning_lat_range=LIGHTNING_LAT_RANGE,
-        #         lightning_lon_range=LIGHTNING_LON_RANGE,
-        #         out_path=None,           
-        #     )
     
     #--------------------------------------------------------------------------
     else:
