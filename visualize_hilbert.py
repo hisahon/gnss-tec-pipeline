@@ -430,8 +430,17 @@ def _hhmm_to_hours(t):
     return hh + mm / 60
 
 
-def _add_time_markers(ax, times, color="blue", lw=2, ls="--", zorder=10):
-    """Desenha axvlines a partir de horários 'HHMM' (ex: '1055')."""
+TIME_MARKERS = {
+    (2026, 202): "1025 1055 1145 1202 1310 1510 1555 1650 1740 1800 1900 2000".split(),
+    (2026, 203): "1305 1335 1430 1500 1630".split(),
+    (2026, 204): "1600 1635 1705".split(),
+}
+
+
+def _add_time_markers(ax, year, doy, color="blue", lw=2, ls="--", zorder=10):
+    """Desenha axvlines a partir de horários 'HHMM' cadastrados em TIME_MARKERS
+    para o (year, doy) informado."""
+    times = TIME_MARKERS.get((year, doy))
     if not times:
         return
     for t in times:
@@ -490,7 +499,7 @@ def plot_combined_panels(
         ax_dtec.plot(sub["t_hours"], y + baseline, color=color, linewidth=2.0, zorder=3)
 
     ax_dtec.set_yticks(baselines)
-    ax_dtec.set_yticklabels(chosen_pairs, fontsize=8)
+    ax_dtec.set_yticklabels(chosen_pairs, fontsize=18)
     
     bot_pad = 0.6 * offset
     top_pad = 1.4 * offset
@@ -618,18 +627,18 @@ def plot_combined_panels(
     #     ax.grid(True, which="minor", axis="both", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
     #     ax.grid(True, which="major", axis="y", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
     
-    #%% Vertical lines
-    #2026 202 1000-1500
-    markers = "1025 1055 1145 1202 1310".split()
+    # #% Vertical lines
+    # #2026 202 1000-1500
+    # markers = "1025 1055 1145 1202 1310".split()
     
-    #2026 202 1500-2100
-    markers = "1510 1555 1650 1740 1800 1900 2000".split() 
+    # #2026 202 1500-2100
+    # markers = "1510 1555 1650 1740 1800 1900 2000".split() 
     
-    #2026 203 1300-1700
-    markers = "1305 1430 1500 1630".split() 
+    # #2026 203 1300-1700
+    # markers = "1305 1430 1500 1630".split() 
     
-    #2026 204 1500-2100
-    markers = "1600 1635 1705".split() 
+    # #2026 204 1500-2100
+    # markers = "1600 1635 1705".split() 
     
     #% Times spans
     spans = None
@@ -641,7 +650,7 @@ def plot_combined_panels(
             ax.grid(True, which="both", color="gray", lw=0.6, ls=":", alpha=0.6, zorder=0)
             ax.grid(True, which="major", axis="x", color="black", lw=1.0, ls="--", alpha=1.0, zorder=0)
             
-            _add_time_markers(ax, markers)
+            _add_time_markers(ax, year, doy)
             _add_time_spans(ax, spans)
             
             
@@ -1037,31 +1046,67 @@ if __name__ == "__main__":
         # #     }
         # # ]
         
+        # manual_runs = [
+        #     {
+        #         "year": 2026, "doy": 204, "tbeg": 16, "tend": 17 + 40/60,
+        #         "pairs": [
+        #                 "caep · R18",
+        #                 "neia · R18",
+        #                 "itai · G11",
+        #                 "rscl · E34",
+        #                 "rscl · G11",
+        #                 "scaq · R18",
+        #                 "scbl · R18",
+        #                 "stha · R18",
+                        
+        #                 "stha · G29",
+        #                 "uyvi · G29",
+        #                 "itai · R18",
+        #                 "itai · G29",
+
+        #                 "prcl · G29",
+        #                 "puma · G11",
+        #                 "eesc · G29",
+        #                 "fosa · R18",
+        #                 "guai · R18",
+        #                 "rosa · G29",
+        #                 "py01 · R18",
+        #     ]
+        #     }
+        # ]
+        
         manual_runs = [
             {
-                "year": 2026, "doy": 204, "tbeg": 16, "tend": 17+40/60,
+                "year": 2026, "doy": 203, "tbeg": 14, "tend": 16,
                 "pairs": [
-                        "caep · R18",
-                        "neia · R18",
-                        "itai · G11",
-                        "rscl · E34",
-                        "rscl · G11",
-                        "scaq · R18",
-                        "scbl · R18",
-                        "stha · R18",
-                        
-                        "stha · G29",
-                        "uyvi · G29",
-                        "itai · R18",
-                        "itai · G29",
-
-                        "prcl · G29",
-                        "puma · G11",
-                        "eesc · G29",
-                        "fosa · R18",
-                        "guai · R18",
-                        "rosa · G29",
-                        "py01 · R18",
+                    # "caep · G11",
+                    # "coru · E13",
+                    # "dino · G06",
+                    "eesc · E23",
+                    "fosa · G11",
+                    "gogy · G12",
+                    "mgla · R03",
+                    "msdr · E13",
+                    "msdr · R24",
+                    # "oran · G06",
+                    "ppte · E23",
+                    "ppte · G12",
+                    "ppte · G13",
+                    "prgu · E23",
+                    "prgu · G12",
+                    # "prgu · G13",
+                    "prma · G12",
+                    "prma · E23",
+                    # "puma · G06",
+                    "puma · R24",
+                    "puma · G11",
+                    "py01 · G06",
+                    "py01 · G11",
+                    # "rosa · E23",
+                    # "rosa · G12",
+                    "unsa · G11",
+                    "uyco · G11",
+                    "yema · G11",
             ]
             }
         ]
@@ -1145,56 +1190,56 @@ if __name__ == "__main__":
         #     # (2025, 298, 18, 21),
         # ]
         
-        # runs = [
-        #     # (2026, 202, 10, 15),
-        #     # (2026, 202, 15, 21),
-        #     # (2026, 203, 13, 17),
-        #     (2026, 204, 15, 18),
-        #         ]
+    #     runs = [
+    #         # (2026, 202, 10, 15),
+    #         # (2026, 202, 15, 21),
+    #         (2026, 203, 14, 16),
+    #         # (2026, 204, 15, 18),
+    #             ]
 
-        # LAT_RANGE = (-32.01, -17.99)    
-        # LON_RANGE = (-62.01, -47.99)    
-        # LIGHTNING_LAT_RANGE = None    
-        # LIGHTNING_LON_RANGE = None    
+    #     LAT_RANGE = (-32.01, -17.99)    
+    #     LON_RANGE = (-62.01, -47.99)    
+    #     LIGHTNING_LAT_RANGE = None    
+    #     LIGHTNING_LON_RANGE = None    
 
-        # # =========================================================
-        # # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
-        # # =========================================================
-        # FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
-        # FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
+    #     # =========================================================
+    #     # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
+    #     # =========================================================
+    #     FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
+    #     FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
         
-        # for tyear, tdoy, tbeg, tend in runs:
-        #     TIME_RANGE = (tbeg, tend)
+    #     for tyear, tdoy, tbeg, tend in runs:
+    #         TIME_RANGE = (tbeg, tend)
             
-        #     run(
-        #         year=tyear, doy=tdoy,
-        #         lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-        #         dtec_col=None,          
-        #         kind=FIG_KIND,           
-        #         mode=FILTER_MODE,        
-        #         hilbert_threshold=0.02,  
-        #         offset=0.25,              
-        #         trh=0.20001,               
-        #         sample_rate_sec=15.0,
-        #         min_period_min=1.2,
-        #         max_period_min=10.0,
-        #         min_points=160,
-        #         add_spectrogram=True,
-        #         lightning_lat_range=LIGHTNING_LAT_RANGE,
-        #         lightning_lon_range=LIGHTNING_LON_RANGE,
-        #         out_path=None,           
-        #     )
+    #         run(
+    #             year=tyear, doy=tdoy,
+    #             lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+    #             dtec_col=None,          
+    #             kind=FIG_KIND,           
+    #             mode=FILTER_MODE,        
+    #             hilbert_threshold=0.02,  
+    #             offset=0.25,              
+    #             trh=0.20001,               
+    #             sample_rate_sec=15.0,
+    #             min_period_min=1.2,
+    #             max_period_min=10.0,
+    #             min_points=160,
+    #             add_spectrogram=True,
+    #             lightning_lat_range=LIGHTNING_LAT_RANGE,
+    #             lightning_lon_range=LIGHTNING_LON_RANGE,
+    #             out_path=None,           
+    #         )
     
-    #--------------------------------------------------------------------------
-    else:
-        print("Running in CLI Mode...")
-        args = parse_arguments()
-        run(
-            year=args.year, doy=args.doy, lat_range=tuple(args.lat), lon_range=tuple(args.lon),
-            time_range=tuple(args.time), dtec_col=getattr(args, "dtec_col", None),
-            kind=args.kind, mode=args.mode, n=args.n, offset=args.offset, trh=args.trh,
-            hilbert_threshold=args.hilbert_threshold,
-            sample_rate_sec=args.sample_rate,
-            min_period_min=args.min_period,
-            max_period_min=args.max_period
-        )
+    # #--------------------------------------------------------------------------
+    # else:
+    #     print("Running in CLI Mode...")
+    #     args = parse_arguments()
+    #     run(
+    #         year=args.year, doy=args.doy, lat_range=tuple(args.lat), lon_range=tuple(args.lon),
+    #         time_range=tuple(args.time), dtec_col=getattr(args, "dtec_col", None),
+    #         kind=args.kind, mode=args.mode, n=args.n, offset=args.offset, trh=args.trh,
+    #         hilbert_threshold=args.hilbert_threshold,
+    #         sample_rate_sec=args.sample_rate,
+    #         min_period_min=args.min_period,
+    #         max_period_min=args.max_period
+    #     )
