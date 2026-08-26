@@ -76,6 +76,15 @@ PRN_COL  = "prn"         # satellite id column inside each parquet
 
 
 # ==========================================================================
+# 0c. Helper: (year, doy) -> string "YYYY-MM-DD"
+# ==========================================================================
+def _year_doy_para_data_str(year: int, doy: int) -> str:
+    """Converte (ano, dia-do-ano) em string de data 'YYYY-MM-DD' (ex.: 2026-07-22)."""
+    data = pd.Timestamp(year=year, month=1, day=1) + pd.Timedelta(days=doy - 1)
+    return data.strftime("%Y/%m/%d")
+
+
+# ==========================================================================
 # 1. Load + spatio-temporal cut
 # ==========================================================================
 def _station_from_path(path: Path) -> str:
@@ -362,7 +371,7 @@ def plot_pairs_lines(
     for baseline, color, pair in zip(baselines, colors, chosen_pairs):
         ax.text(
             0.006, baseline + LABEL_LIFT, pair, transform=ax.get_yaxis_transform(),
-            fontsize=FS_LABEL, va="center", ha="left", color=color, fontweight="bold",
+            fontsize=FS_LABEL, va="center", ha="left", color="black", fontweight="bold",
             zorder=5, bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.75),
         )
 
@@ -387,7 +396,7 @@ def plot_pairs_lines(
             transform=ax.get_yaxis_transform(), fontsize=FS_SCALEBAR, va="center", ha="right",
             color="0.15", zorder=6)
 
-    title = f"dTEC line stack by receiver-PRN — {year} doy {doy:03d}  |  {len(chosen_pairs)} pair(s)"
+    title = f"dTEC line stack by receiver-PRN — {_year_doy_para_data_str(year, doy)} (doy {doy:03d})  |  {len(chosen_pairs)} pair(s)"
     ax.set_title(title, fontsize=FS_TITLE)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -477,7 +486,7 @@ def plot_pairs_trajectory(
         ax.set_axisbelow(False)
         ax.grid(True, linestyle=":", alpha=1., zorder=5)
         
-    ax_lon.set_title(f"TRAVEL TIME DIAGRAM: {year}-{doy:03d} | {len(chosen_pairs)} pair(s)")
+    ax_lon.set_title(f"TRAVEL TIME DIAGRAM: {_year_doy_para_data_str(year, doy)} (doy {doy:03d}) | {len(chosen_pairs)} pair(s)")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
@@ -495,15 +504,23 @@ def _hhmm_to_hours(t):
     return hh + mm / 60
 
 
+# TIME_MARKERS = {
+#     # (2021, 296):"".split(),
+#     (2026, 202): "1025 1055 1145 1202 1310 1510 1555 1650 1740 1800 1900 2000".split(),
+#     (2026, 203): "1305 1335 1430 1500 1630".split(),
+#     (2026, 204): "1600 1635 1705".split(),
+# }
+
 TIME_MARKERS = {
-    # (2021, 296):"".split(),
+    (2021, 296):"1610".split(),
+    (2023, 347):"1550".split(),
     (2026, 202): "1025 1055 1145 1202 1310 1510 1555 1650 1740 1800 1900 2000".split(),
-    (2026, 203): "1305 1335 1430 1500 1630".split(),
-    (2026, 204): "1600 1635 1705".split(),
+    (2026, 203): "1500".split(),
+    (2026, 204): "1640".split(),
 }
 
 
-def _add_time_markers(ax, year, doy, color="blue", lw=2, ls="--", zorder=10):
+def _add_time_markers(ax, year, doy, color="lime", lw=2, ls="--", zorder=10):
     """Desenha axvlines a partir de horários 'HHMM' cadastrados em TIME_MARKERS
     para o (year, doy) informado."""
     times = TIME_MARKERS.get((year, doy))
@@ -550,7 +567,7 @@ def plot_combined_panels(
     
     fig, (ax_dtec, ax_lfr, ax_spec) = plt.subplots(
         3, 1, figsize=(6, 16), sharex=True, 
-        gridspec_kw={"height_ratios": [dtec_height, 1, 1]},
+        gridspec_kw={"height_ratios": [dtec_height, 2, 2]},
         constrained_layout=True
     )
 
@@ -600,14 +617,14 @@ def plot_combined_panels(
     for baseline, color, pair in zip(baselines, colors, chosen_pairs):
         ax_dtec.text(
             0.006, baseline + LABEL_LIFT, pair, transform=ax_dtec.get_yaxis_transform(),
-             va="center", ha="left", color=color, fontweight="bold",
+             va="center", ha="left", color="black", fontweight="bold",
             zorder=5, bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none"),
         )
     
     ax_dtec.tick_params(axis="both")
 
     # movavg = int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
-    title = r"$\mathbf{" + f"{year}" + r"}$ - $\mathbf{" + f"{doy:03d}" + r"}$"
+    title = r"\textbf{" + _year_doy_para_data_str(year, doy) + f"  [doy: {doy:03d}]" + "}"
     ax_dtec.set_title(title)
     # ax_dtec.set_title(title)
 
@@ -620,9 +637,9 @@ def plot_combined_panels(
     # sempre dentro da área visível, mesmo que o xlim seja recortado depois
     # (ex.: ax_spec.set_xlim mais abaixo, que é compartilhado via sharex).
     scale_x = 0.975
-    ax_dtec.plot([scale_x, scale_x], [bar_bottom, bar_top], transform=ax_dtec.get_yaxis_transform(),
+    ax_dtec.plot([scale_x, scale_x], [bar_bottom+0.2, bar_top+0.2], transform=ax_dtec.get_yaxis_transform(),
                  color="0.15", linewidth=2.5, zorder=6, clip_on=False)
-    ax_dtec.text(scale_x - 0.012, (bar_bottom + bar_top) / 2, f"{offset:g} TECU",
+    ax_dtec.text(scale_x - 0.012, (bar_bottom + bar_top) / 2 + 0.25, f"{offset:g} TECU",
                  transform=ax_dtec.get_yaxis_transform(),  va="top", ha="right",
                  color="0.15", zorder=6)
 
@@ -803,6 +820,17 @@ def parse_arguments():
 
 
 # ==========================================================================
+#%% 4b. Helper: hora decimal -> string "HHMM"
+# ==========================================================================
+def _hora_decimal_para_hhmm(t: float) -> str:
+    """Converte hora decimal (ex.: 17 + 40/60) em string 'HHMM' (ex.: '1740')."""
+    total_min = round(t * 60)          # arredonda pro minuto mais próximo
+    total_min %= 24 * 60               # segurança: envolve caso passe de 24h
+    hh, mm = divmod(total_min, 60)
+    return f"{hh:02d}{mm:02d}"
+
+
+# ==========================================================================
 #%% 5. Entry point
 # ==========================================================================
 def run(
@@ -819,7 +847,9 @@ def run(
     # ======================================================================
     if out_path is None:
         t0, t1 = time_range
-        file_name = f"{kind}_{year}-{doy:03d}_{t0}-{t1}_{mode}.png"
+        t0_str = _hora_decimal_para_hhmm(t0)
+        t1_str = _hora_decimal_para_hhmm(t1)
+        file_name = f"{kind}_{year}-{doy:03d}_{t0_str}-{t1_str}_{mode}.png"
         out_path = ttd_figs_dir() / file_name
         
     # # Prevenção: verifica e avisa antes de rodar queries se já existir
@@ -1146,34 +1176,15 @@ if __name__ == "__main__":
             {
                 "year": 2026, "doy": 203, "tbeg": 14, "tend": 16,
                 "pairs": [
-                    # "caep · G11",
-                    # "coru · E13",
-                    # "dino · G06",
-                    # "eesc · E23",
                     "fosa · G11",
-                    # "gogy · G12",
-                    # "mgla · R03",
-                    # "msdr · E13",
                     "msdr · R24",
-                    # "oran · G06",
                     "ppte · E23",
                     "ppte · G12",
                     "ppte · G13",
-                    # "prgu · E23",
-                    # "prgu · G12",
-                    # # "prgu · G13",
                     "prma · G12",
                     "prma · E23",
-                    # "puma · G06",
                     "puma · R24",
-                    # "puma · G11",
-                    # "py01 · G06",
                     "py01 · G11",
-                    # "rosa · E23",
-                    # "rosa · G12",
-                    # "unsa · G11",
-                    # "uyco · G11",
-                    # "yema · G11",
             ]
             }
         ]
