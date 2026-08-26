@@ -431,6 +431,7 @@ def _hhmm_to_hours(t):
 
 
 TIME_MARKERS = {
+    # (2021, 296):"".split(),
     (2026, 202): "1025 1055 1145 1202 1310 1510 1555 1650 1740 1800 1900 2000".split(),
     (2026, 203): "1305 1335 1430 1500 1630".split(),
     (2026, 204): "1600 1635 1705".split(),
@@ -447,7 +448,7 @@ def _add_time_markers(ax, year, doy, color="blue", lw=2, ls="--", zorder=10):
         ax.axvline(x=_hhmm_to_hours(t), color=color, lw=lw, ls=ls, zorder=zorder)
 
 
-def _add_time_spans(ax, spans, color="blue", alpha=0.2, zorder=5):
+def _add_time_spans(ax, spans, color="gray", alpha=0.2, zorder=5):
     """Destaca intervalos de tempo com área sombreada (axvspan)."""
     if not spans:
         return
@@ -641,7 +642,7 @@ def plot_combined_panels(
     # markers = "1600 1635 1705".split() 
     
     #% Times spans
-    spans = None
+    spans = "1606-1615 1628-1635".split()
     
     for ax in (ax_dtec, ax_lfr, ax_spec):
             ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
@@ -654,28 +655,7 @@ def plot_combined_panels(
             _add_time_spans(ax, spans)
             
             
-            
 
-
-    
-            # ax.axvline(x=15.+50/60, color="blue", lw=1, ls="--", zorder=10)
-            # ax.axvline(x=16.+33/60, color="blue", lw=1, ls="--", zorder=10)
-            # ax.axvline(x=17.+ 18/60, color="blue", lw=1, ls="--", zorder=10)
-            
-            # ax.axvline(x=16.+5/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=16.+50/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=17.+ 25/60, color="blue", lw=2, ls="--", zorder=10)
-            
-            # ax.axvline(x=8. + 26/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=8. + 49/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=9. + 4/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=9. + 21/60, color="blue", lw=2, ls="--", zorder=10)
-            
-            # ax.axvline(x=15. + 55/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=16. + 32/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=9. + 4/60, color="blue", lw=2, ls="--", zorder=10)
-            # ax.axvline(x=9. + 21/60, color="blue", lw=2, ls="--", zorder=10)
-            
             
             
     # =======================================================
@@ -1075,38 +1055,62 @@ if __name__ == "__main__":
         #     }
         # ]
         
+        # manual_runs = [
+        #     {
+        #         "year": 2026, "doy": 203, "tbeg": 14, "tend": 16,
+        #         "pairs": [
+        #             # "caep · G11",
+        #             # "coru · E13",
+        #             # "dino · G06",
+        #             "eesc · E23",
+        #             "fosa · G11",
+        #             "gogy · G12",
+        #             "mgla · R03",
+        #             "msdr · E13",
+        #             "msdr · R24",
+        #             # "oran · G06",
+        #             "ppte · E23",
+        #             "ppte · G12",
+        #             "ppte · G13",
+        #             "prgu · E23",
+        #             "prgu · G12",
+        #             # "prgu · G13",
+        #             "prma · G12",
+        #             "prma · E23",
+        #             # "puma · G06",
+        #             "puma · R24",
+        #             "puma · G11",
+        #             "py01 · G06",
+        #             "py01 · G11",
+        #             # "rosa · E23",
+        #             # "rosa · G12",
+        #             "unsa · G11",
+        #             "uyco · G11",
+        #             "yema · G11",
+        #     ]
+        #     }
+        # ]
+        
         manual_runs = [
             {
-                "year": 2026, "doy": 203, "tbeg": 14, "tend": 16,
+                "year": 2021, "doy": 296, "tbeg": 15 +40/60, "tend": 16+50/60,
                 "pairs": [
-                    # "caep · G11",
-                    # "coru · E13",
-                    # "dino · G06",
-                    "eesc · E23",
-                    "fosa · G11",
-                    "gogy · G12",
-                    "mgla · R03",
-                    "msdr · E13",
-                    "msdr · R24",
-                    # "oran · G06",
-                    "ppte · E23",
-                    "ppte · G12",
-                    "ppte · G13",
-                    "prgu · E23",
-                    "prgu · G12",
-                    # "prgu · G13",
-                    "prma · G12",
-                    "prma · E23",
-                    # "puma · G06",
-                    "puma · R24",
-                    "puma · G11",
-                    "py01 · G06",
-                    "py01 · G11",
-                    # "rosa · E23",
-                    # "rosa · G12",
-                    "unsa · G11",
-                    "uyco · G11",
-                    "yema · G11",
+                    "mspp · G02",
+                    "spdr · G29",
+                    "msjr · G02",
+                        "coru · E11",
+                        "coru · G02",
+                        "coru · G11",
+                        "ilha · G29",
+                        "mspm · G12",
+                        "msaq · G25",
+                        "msbl · R13",
+                        "msdr · E02",
+                        "msdr · G25",
+                        "mspm · G25",
+                        "mspm · R13",
+                        
+                        
             ]
             }
         ]
@@ -1190,45 +1194,46 @@ if __name__ == "__main__":
         #     # (2025, 298, 18, 21),
         # ]
         
-    #     runs = [
-    #         # (2026, 202, 10, 15),
-    #         # (2026, 202, 15, 21),
-    #         (2026, 203, 14, 16),
-    #         # (2026, 204, 15, 18),
-    #             ]
+        # runs = [
+        #     (2021, 296, 15.5, 16 + 50/60),
+        #     # (2026, 202, 10, 15),
+        #     # (2026, 202, 15, 21),
+        #     # (2026, 203, 14, 16),
+        #     # (2026, 204, 15, 18),
+        #         ]
 
-    #     LAT_RANGE = (-32.01, -17.99)    
-    #     LON_RANGE = (-62.01, -47.99)    
-    #     LIGHTNING_LAT_RANGE = None    
-    #     LIGHTNING_LON_RANGE = None    
+        # LAT_RANGE = (-32.01, -17.99)    
+        # LON_RANGE = (-62.01, -47.99)    
+        # LIGHTNING_LAT_RANGE = None    
+        # LIGHTNING_LON_RANGE = None    
 
-    #     # =========================================================
-    #     # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
-    #     # =========================================================
-    #     FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
-    #     FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
+        # # =========================================================
+        # # ->> CONTROLE PRINCIPAL DE FIGURA E FILTRO <<-
+        # # =========================================================
+        # FIG_KIND   = "combined"   # OPÇÕES: "combined" | "trajectory" | "timeseries"
+        # FILTER_MODE = "hilbert"   # OPÇÕES: "hilbert" | "topN" | "all" | "list"
         
-    #     for tyear, tdoy, tbeg, tend in runs:
-    #         TIME_RANGE = (tbeg, tend)
+        # for tyear, tdoy, tbeg, tend in runs:
+        #     TIME_RANGE = (tbeg, tend)
             
-    #         run(
-    #             year=tyear, doy=tdoy,
-    #             lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
-    #             dtec_col=None,          
-    #             kind=FIG_KIND,           
-    #             mode=FILTER_MODE,        
-    #             hilbert_threshold=0.02,  
-    #             offset=0.25,              
-    #             trh=0.20001,               
-    #             sample_rate_sec=15.0,
-    #             min_period_min=1.2,
-    #             max_period_min=10.0,
-    #             min_points=160,
-    #             add_spectrogram=True,
-    #             lightning_lat_range=LIGHTNING_LAT_RANGE,
-    #             lightning_lon_range=LIGHTNING_LON_RANGE,
-    #             out_path=None,           
-    #         )
+        #     run(
+        #         year=tyear, doy=tdoy,
+        #         lat_range=LAT_RANGE, lon_range=LON_RANGE, time_range=TIME_RANGE,
+        #         dtec_col=None,          
+        #         kind=FIG_KIND,           
+        #         mode=FILTER_MODE,        
+        #         hilbert_threshold=0.02,  
+        #         offset=0.25,              
+        #         trh=0.20001,               
+        #         sample_rate_sec=15.0,
+        #         min_period_min=1.2,
+        #         max_period_min=10.0,
+        #         min_points=160,
+        #         add_spectrogram=True,
+        #         lightning_lat_range=LIGHTNING_LAT_RANGE,
+        #         lightning_lon_range=LIGHTNING_LON_RANGE,
+        #         out_path=None,           
+        #     )
     
     # #--------------------------------------------------------------------------
     # else:
