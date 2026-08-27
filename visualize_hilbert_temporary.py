@@ -27,18 +27,13 @@ import matplotlib.ticker as ticker
 #     estes valores). Os fontsize explícitos com font_scale continuam
 #     funcionando por cima disso, escalando a partir deste tamanho-base.
 # ==========================================================================
-mpl.rcParams["font.size"]       = 16
-mpl.rcParams["axes.titlesize"]  = 20
-mpl.rcParams["axes.labelsize"]  = 16
-mpl.rcParams["xtick.labelsize"] = 16
-mpl.rcParams["ytick.labelsize"] = 16
+mpl.rcParams["font.size"]       = 18
+mpl.rcParams["axes.titlesize"]  = 22
+mpl.rcParams["axes.labelsize"]  = 18
+mpl.rcParams["xtick.labelsize"] = 18
+mpl.rcParams["ytick.labelsize"] = 18
 
-# # if USE_LATEX_STYLE_FONT:
-# mpl.rcParams["font.family"]      = "serif"
-# mpl.rcParams["font.serif"]       = ["cmr10", "Computer Modern Roman", "DejaVu Serif"]
-# mpl.rcParams["mathtext.fontset"] = "cm"       # Computer Modern nas expressões com $...$
-# mpl.rcParams["axes.unicode_minus"] = False    # evita erro do glifo '−' no fontset cm
-# mpl.rcParams["axes.formatter.use_mathtext"] = True  # evita warning do cmr10 com números de eixo
+FS_MINOR_TICK = 16
 
 # if FONT_ENGINE == "usetex":
 mpl.rcParams["text.usetex"]  = True
@@ -746,16 +741,20 @@ def plot_combined_panels(
     ax_spec.set_xlim(15.+ 40/60, 16 + 20/60) #2023 347
     ax_spec.set_xlim(16. + 10/60, 17.) #2023 347
     ax_spec.set_xlim(14. + 30/60, 16.) #2023 347
-    # ax_spec.set_xlim(h0, h1)
+    ax_spec.set_xlim(h0, h1)
 
 
     
     #% Times spans
     spans = "1606-1615 1628-1635".split()
     
-    for ax in (ax_dtec, ax_lfr, ax_spec):
+    # FS_MINOR_TICK = 10 * font_scale  # fonte menor pros labels HH:MM dos minor ticks
+
+    for ax in (ax_spec,):
             ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
             ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
+            ax.xaxis.set_minor_formatter(ticker.FuncFormatter(lambda x, pos: _hora_decimal_para_hhmm_colon(x)))
+            ax.tick_params(axis="x", which="minor", labelsize=FS_MINOR_TICK, labelbottom=True)
             
             ax.grid(True, which="both", color="gray", lw=0.6, ls=":", alpha=0.6, zorder=0)
             ax.grid(True, which="major", axis="x", color="black", lw=1.0, ls="--", alpha=1.0, zorder=0)
@@ -828,6 +827,12 @@ def _hora_decimal_para_hhmm(t: float) -> str:
     total_min %= 24 * 60               # segurança: envolve caso passe de 24h
     hh, mm = divmod(total_min, 60)
     return f"{hh:02d}{mm:02d}"
+
+
+def _hora_decimal_para_hhmm_colon(t: float) -> str:
+    """Converte hora decimal em string 'HH:MM' (ex.: 17 + 40/60 -> '17:40')."""
+    s = _hora_decimal_para_hhmm(t)
+    return f"{s[:2]}:{s[2:]}"
 
 
 # ==========================================================================
@@ -1108,110 +1113,83 @@ if __name__ == "__main__":
         
         # manual_runs = [
         #     {
-        #         "year": 2023, "doy": 347, "tbeg": 15, "tend": 16.5,
+        #         "year": 2023, "doy": 347, "tbeg": 15+30/60, "tend": 16+30/60,
         #         "pairs": [
-        #         # "tatu · G23",
-        #         # "spdr · R01",
-        #         # # "rosa · R17",
-        #         # "rosa · E13",
-        #         "rcro · E03",
-        #         # "py01 · R02",
-        #         "py01 · G10",
 
-        #         # "puma · R02",
+        #         "rcro · E03",
+        #         "py01 · G10",
         #         "prur · G27",
+                
         #         "prgu · E13",
         #         "prcl · E13",
-        #         # "mspp · R17",
-        #         # "mspp · G27",
-        #         # "msnv · R17",
         #         "msnv · G27",
+                
         #         "msmn · E13",
-        #         # "msmj · R17",
-        #         # "msmj · G27",
-        #         # "msjr · R17",
-        #         # "msdr · R17",
         #         "msbl · G27",
-        #         # "msbl · R17",
-        #         # "msbl · G27",
-        #         # "itai · E13",
-        #         # "guai · R17",
         #         "guai · G27",
-        #         # "rcr0 · E13",
-        #         # "guai · E13"
         #     ]
         #     }
         # ]
         
         # manual_runs = [
         #     {
-        #         "year": 2026, "doy": 204, "tbeg": 16, "tend": 17 + 40/60,
+        #         "year": 2026, "doy": 204, "tbeg": 16+10/60, "tend": 17 + 10/60,
         #         "pairs": [
-        #                 # "caep · R18",
-        #                 # "neia · R18",
-        #                 # "itai · G11",
-        #                 # "rscl · E34",
-        #                 # "rscl · G11",
         #                 "scaq · R18",
-        #                 # "scbl · R18",
         #                 "stha · R18",
-                        
         #                 "stha · G29",
-        #                 # "uyvi · G29",
+
         #                 "itai · R18",
         #                 "itai · G29",
-
         #                 "prcl · G29",
+
         #                 "puma · G11",
-        #                 # "eesc · G29",
         #                 "fosa · R18",
-        #                 # "guai · R18",
         #                 "rosa · G29",
-        #                 # "py01 · R18",
+        #     ]
+        #     }
+        # ]
+        
+        # manual_runs = [
+        #     {
+        #         "year": 2026, "doy": 203, "tbeg": 14 + 30/60, "tend": 15+30/60,
+        #         "pairs": [
+        #             "fosa · G11",
+        #             "msdr · R24",
+        #             "ppte · E23",
+                    
+        #             "ppte · G12",
+        #             "ppte · G13",
+        #             "prma · G12",
+                    
+        #             "prma · E23",
+        #             "puma · R24",
+        #             "py01 · G11",
         #     ]
         #     }
         # ]
         
         manual_runs = [
             {
-                "year": 2026, "doy": 203, "tbeg": 14, "tend": 16,
+                "year": 2021, "doy": 296, "tbeg": 15 +40/60, "tend": 16+40/60,
                 "pairs": [
-                    "fosa · G11",
-                    "msdr · R24",
-                    "ppte · E23",
-                    "ppte · G12",
-                    "ppte · G13",
-                    "prma · G12",
-                    "prma · E23",
-                    "puma · R24",
-                    "py01 · G11",
+
+                        "coru · G11",
+                        "ilha · G29",
+                        "mspm · G12",
+                        
+                        "msaq · G25",
+                        "msbl · R13",
+                        "msdr · E02",
+                        
+                        "msdr · G25",
+                        "mspm · G25",
+                        "mspm · R13",
+                        
+                        
             ]
             }
         ]
-        
-        # manual_runs = [
-        #     {
-        #         "year": 2021, "doy": 296, "tbeg": 15 +30/60, "tend": 16+50/60,
-        #         "pairs": [
-        #                 # "mspp · G02",
-        #                 # "spdr · G29",
-        #                 # "msjr · G02",
-        #             #     "coru · E11",
-        #             #     # "coru · G02",
-        #                 "coru · G11",
-        #                 "ilha · G29",
-        #                 "mspm · G12",
-        #                 "msaq · G25",
-        #                 "msbl · R13",
-        #                 "msdr · E02",
-        #                 "msdr · G25",
-        #                 "mspm · G25",
-        #                 "mspm · R13",
-                        
-                        
-        #     ]
-        #     }
-        # ]
 
         LAT_RANGE = (-32.01, -17.99)    
         LON_RANGE = (-62.01, -47.99)    
