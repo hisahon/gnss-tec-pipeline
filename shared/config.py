@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
 """Configuração central do pipeline.
-
-Substitui o antigo ``comv.py``. Lê a variável ``DB_ROOT`` do arquivo ``.env``
-e expõe helpers para montar os caminhos das subpastas usadas por todas as
-etapas do pipeline.
+Lê a variável ``DB_ROOT`` do arquivo ``.env`` e expõe helpers para montar os
+caminhos das subpastas usadas por todas as etapas do pipeline.
 """
-
 from __future__ import annotations
 
 import logging
@@ -13,25 +10,19 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-place = 'home'
-# place = 'inpe'
-# place = 'ssd-inpe'
-# place = 'ssd-home'
-
-if place == "home":
-    DB_ROOT='D:\database'
-    
-elif place == 'inpe':
-    DB_ROOT='/home/hisashi/database'
-    
-elif place == 'ssd-home':
-    DB_ROOT='nao sei ainda'
-    
-elif place == 'ssd-inpe':
-    DB_ROOT='/media/hisashi/ESSD/database'
-
-
+DB_ROOT = os.environ.get("DB_ROOT")
+if not DB_ROOT:
+    raise RuntimeError(
+        "DB_ROOT não está definido. Crie um arquivo .env (a partir de .env.example) "
+        "com a linha DB_ROOT=/caminho/para/o/database nesta máquina."
+    )
+DB_ROOT = Path(DB_ROOT).expanduser()
 
 # Path(DB_ROOT).expanduser()
 DB_ROOT = Path(DB_ROOT).expanduser()

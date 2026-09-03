@@ -23,7 +23,9 @@ import matplotlib.ticker as ticker
 # --- Dependências para o filtro de oscilações ---
 from scipy.signal import butter, filtfilt, hilbert
 
-# Import custom modules 
+# Import custom modules
+# shared.config já carrega o .env e resolve DB_ROOT/DTEC_ROOT internamente,
+# então este script não precisa se preocupar com isso.
 from shared.config import dtec_ipp_dir, dtec_keogram_figs_dir, storms_SouthAmerica
 from shared.storm_tracking import plot_storms_tracked
 from shared.lightning_spectrogram import (
@@ -39,6 +41,7 @@ from shared.lightning_spectrogram import (
 # Ative/desative a renderizacao de texto via LaTeX (requer TeX instalado no
 # sistema, ex.: TeX Live / MiKTeX). Se False, usa o mathtext interno do
 # matplotlib com a fonte indicada em FONT_FAMILY (nenhum TeX externo needed).
+# LaTeX está instalado nas duas máquinas de trabalho, então isso fica fixo.
 USE_LATEX = True
 
 # Pacotes LaTeX extras usados nos textos/rotulos (ex.: siunitx p/ unidades)
@@ -85,6 +88,9 @@ COMBINED_PANELS_RC = {
 # ==========================================================================
 # 0b. Dedicated output folder for this script's figures
 # ==========================================================================
+# A pasta raiz de tudo (DB_ROOT) já é resolvida por shared.config a partir
+# do .env de cada máquina, então aqui só derivamos a subpasta específica
+# deste script, sem precisar de nenhuma variável de ambiente própria.
 def ttd_figs_dir() -> Path:
     folder = Path(dtec_keogram_figs_dir()).parent / "keograms_TTDs"
     folder.mkdir(parents=True, exist_ok=True)
@@ -291,15 +297,17 @@ def select_pairs_by_hilbert(
                             alpha=0.7) # Alpha deixa o texto um pouco transparente
                 
                 # --- SALVAR NO DISCO ---
-                # 1. Define o caminho da pasta
-                pasta_destino = f'figures_overview/{tyear}{tdoy}_{TIME_RANGE[0]}{TIME_RANGE[1]}'
+                # 1. Define o caminho da pasta (relativo à pasta de onde o
+                #    script é executado; Path() já monta a barra correta em
+                #    qualquer SO)
+                pasta_destino = Path("figures_overview") / f'{tyear}{tdoy}_{TIME_RANGE[0]}{TIME_RANGE[1]}'
                 
                 # 2. Cria a pasta (e subpastas) se ela não existir. 
                 # O 'exist_ok=True' impede que dê erro se a pasta já tiver sido criada na run anterior.
                 os.makedirs(pasta_destino, exist_ok=True)
                 
                 # 3. Define o caminho completo do arquivo
-                nome_arquivo = f'{pasta_destino}/run_{tyear}{tdoy}{TIME_RANGE[0]}{TIME_RANGE[1]}_{pair}.png'
+                nome_arquivo = pasta_destino / f'run_{tyear}{tdoy}{TIME_RANGE[0]}{TIME_RANGE[1]}_{pair}.png'
                 # nome_arquivo = f'figures_overview/{tyear}{tdoy}/run_{tyear}{tdoy}{pair}.png' 
                 # Se estiver usando a pasta: nome_arquivo = f'graficos_runs/run_{pair}.png'
                 
