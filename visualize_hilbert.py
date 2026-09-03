@@ -34,6 +34,55 @@ from shared.lightning_spectrogram import (
 
 
 # ==========================================================================
+# 0a. Parametros de fonte (LaTeX) -- figura combinada (plot_combined_panels)
+# ==========================================================================
+# Ative/desative a renderizacao de texto via LaTeX (requer TeX instalado no
+# sistema, ex.: TeX Live / MiKTeX). Se False, usa o mathtext interno do
+# matplotlib com a fonte indicada em FONT_FAMILY (nenhum TeX externo needed).
+USE_LATEX = True
+
+# Pacotes LaTeX extras usados nos textos/rotulos (ex.: siunitx p/ unidades)
+LATEX_PREAMBLE = r"\usepackage{amsmath}\usepackage{siunitx}"
+
+# Familia de fonte ("serif", "sans-serif", "monospace")
+FONT_FAMILY = "serif"
+
+# Tamanhos de fonte (em pt) usados na figura combinada (plot_combined_panels)
+FONT_SIZE_TITLE       = 20   # titulo principal do painel dTEC (ax_dtec)
+FONT_SIZE_SUBTITLE    = 16    # subtitulo do painel de wavelet (ax_spec)
+FONT_SIZE_AXIS_LABEL  = 16   # rotulos dos eixos (xlabel / ylabel)
+FONT_SIZE_TICK        = 18   # numeros dos eixos (ticks)
+FONT_SIZE_PAIR_LABELS = 16   # rotulos "estacao x PRN" no eixo Y do painel dTEC
+FONT_SIZE_LEGEND      = 16    # legendas (LFR original/filtrado)
+FONT_SIZE_ANNOTATION  = 16    # anotacoes (barra de escala "TECU")
+FONT_SIZE_FOOTER      = 16   # texto de rodape (script/funcao/pasta)
+FONT_SIZE_TICK_MINOR  = 16    # rotulos dos minor ticks do eixo X (formato HH:MM)
+
+# Numero minimo de ticks garantido nos eixos verticais que usam locator
+# automatico (LFR, LFR filtrado, frequencia do wavelet e periodo), mesmo
+# quando a fonte dos ticks (FONT_SIZE_TICK) e aumentada.
+MIN_Y_TICKS = 4
+
+# Rotacao (em graus) aplicada aos rotulos dos minor ticks (HH:MM) do eixo X
+MINOR_TICK_LABEL_ROTATION = 0
+
+# rcParams aplicados SOMENTE durante a geracao da figura combinada (via
+# matplotlib.rc_context dentro de plot_combined_panels), sem afetar as
+# demais figuras do script.
+COMBINED_PANELS_RC = {
+    "text.usetex": USE_LATEX,
+    "text.latex.preamble": LATEX_PREAMBLE,
+    "font.family": FONT_FAMILY,
+    "font.size": FONT_SIZE_AXIS_LABEL,
+    "axes.titlesize": FONT_SIZE_TITLE,
+    "axes.labelsize": FONT_SIZE_AXIS_LABEL,
+    "xtick.labelsize": FONT_SIZE_TICK,
+    "ytick.labelsize": FONT_SIZE_TICK,
+    "legend.fontsize": FONT_SIZE_LEGEND,
+}
+
+
+# ==========================================================================
 # 0b. Dedicated output folder for this script's figures
 # ==========================================================================
 def ttd_figs_dir() -> Path:
@@ -430,15 +479,33 @@ def _hhmm_to_hours(t):
     return hh + mm / 60
 
 
+def _hours_to_hhmm(x, pos=None):
+    """Converte hora decimal (ex: 10.9167) para rótulo 'HH:MM' (ex: '10:55')."""
+    x = x % 24
+    hh = int(x)
+    mm = int(round((x - hh) * 60))
+    if mm == 60:
+        mm = 0
+        hh = (hh + 1) % 24
+    return f"{hh:02d}:{mm:02d}"
+
+
+# TIME_MARKERS = {
+#     # (2021, 296):"".split(),
+#     (2026, 202): "1025 1055 1145 1202 1310 1510 1555 1650 1740 1800 1900 2000".split(),
+#     (2026, 203): "1305 1335 1430 1500 1630".split(),
+#     (2026, 204): "1600 1635 1705".split(),
+# }
+
 TIME_MARKERS = {
     # (2021, 296):"".split(),
-    (2026, 202): "1025 1055 1145 1202 1310 1510 1555 1650 1740 1800 1900 2000".split(),
-    (2026, 203): "1305 1335 1430 1500 1630".split(),
-    (2026, 204): "1600 1635 1705".split(),
+    (2021, 296): "1610".split(),
+    (2023, 347): "1550".split(),
+    (2026, 203): "1500".split(),
+    (2026, 204): "1640".split(),
 }
 
-
-def _add_time_markers(ax, year, doy, color="blue", lw=2, ls="--", zorder=10):
+def _add_time_markers(ax, year, doy, color="lime", lw=2, ls="--", zorder=10):
     """Desenha axvlines a partir de horários 'HHMM' cadastrados em TIME_MARKERS
     para o (year, doy) informado."""
     times = TIME_MARKERS.get((year, doy))
@@ -471,216 +538,224 @@ def plot_combined_panels(
     lightning_lat_range: tuple | None = None, lightning_lon_range: tuple | None = None,
     out_path: Path | None = None, dpi: int = 300,
 ):
-    eff_lat_range  = lat_range
-    eff_lon_range  = lon_range
-    eff_time_range = time_range
-    eff_lightning_lat_range = lightning_lat_range if lightning_lat_range is not None else eff_lat_range
-    eff_lightning_lon_range = lightning_lon_range if lightning_lon_range is not None else eff_lon_range
+    with mpl.rc_context(COMBINED_PANELS_RC):
+        eff_lat_range  = lat_range
+        eff_lon_range  = lon_range
+        eff_time_range = time_range
+        eff_lightning_lat_range = lightning_lat_range if lightning_lat_range is not None else eff_lat_range
+        eff_lightning_lon_range = lightning_lon_range if lightning_lon_range is not None else eff_lon_range
 
-    dtec_height = max(5.0, 0.45 * len(chosen_pairs))
-    fig_h = dtec_height + 6.0  
+        dtec_height = max(5.0, 0.45 * len(chosen_pairs))
+        fig_h = dtec_height + 6.0  
     
-    fig, (ax_dtec, ax_lfr, ax_spec) = plt.subplots(
-        3, 1, figsize=(14, fig_h), sharex=True, 
-        gridspec_kw={"height_ratios": [dtec_height, 3, 3]},
-        constrained_layout=True
-    )
+        fig, (ax_dtec, ax_lfr, ax_spec) = plt.subplots(
+            3, 1, figsize=(14, fig_h), sharex=True, 
+            gridspec_kw={"height_ratios": [dtec_height, 3, 3]},
+            constrained_layout=True
+        )
 
-    cmap = plt.get_cmap(cmap_name)
-    colors = [cmap(i % cmap.N) for i in range(len(chosen_pairs))]
+        cmap = plt.get_cmap(cmap_name)
+        colors = [cmap(i % cmap.N) for i in range(len(chosen_pairs))]
     
-    baselines = []
-    for i, (color, pair) in enumerate(zip(colors, chosen_pairs)):
-        sub = df[df["pair"] == pair].sort_values("t_hours")
-        y = sub[dtec_col].astype(float)
-        baseline = i * offset
-        baselines.append(baseline)
+        baselines = []
+        for i, (color, pair) in enumerate(zip(colors, chosen_pairs)):
+            sub = df[df["pair"] == pair].sort_values("t_hours")
+            y = sub[dtec_col].astype(float)
+            baseline = i * offset
+            baselines.append(baseline)
         
-        ax_dtec.axhline(baseline, color="0.85", linewidth=0.6, zorder=1)
-        ax_dtec.plot(sub["t_hours"], y + baseline, color=color, linewidth=2.0, zorder=3)
+            ax_dtec.axhline(baseline, color="0.85", linewidth=0.6, zorder=1)
+            ax_dtec.plot(sub["t_hours"], y + baseline, color=color, linewidth=2.0, zorder=3)
 
-    ax_dtec.set_yticks(baselines)
-    ax_dtec.set_yticklabels(chosen_pairs, fontsize=18)
+        ax_dtec.set_yticks(baselines)
+        ax_dtec.set_yticklabels(chosen_pairs, fontsize=FONT_SIZE_PAIR_LABELS)
     
-    bot_pad = 0.6 * offset
-    top_pad = 1.4 * offset
-    ax_dtec.set_ylim(baselines[0] - bot_pad, baselines[-1] + top_pad)
-    ax_dtec.set_ylabel("Receiver-PRN (dTEC)")
+        bot_pad = 0.6 * offset
+        top_pad = 1.4 * offset
+        ax_dtec.set_ylim(baselines[0] - bot_pad, baselines[-1] + top_pad)
+        ax_dtec.set_ylabel("Receiver-PRN (dTEC)")
     
-    # movavg = int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
-    title = f"Filtered Perturbations — {year} DOY {doy:03d} | {len(chosen_pairs)} pair(s) | offset {offset:g} TECU"
-    ax_dtec.set_title(title)
+        # movavg = int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
+        title = f"{year} DOY {doy:03d} | {len(chosen_pairs)} pair(s) | offset {offset:g} TECU"
+        ax_dtec.set_title(title)
 
-    sel = df["pair"].isin(chosen_pairs)
-    h0 = float(df.loc[sel, "t_hours"].min())
-    h1 = float(df.loc[sel, "t_hours"].max())
-    span = h1 - h0
-    x_bar = h0 + 0.015 * span
-    cap = 0.004 * span
-    y_bot = baselines[-1] + 0.25 * offset
-    y_top = y_bot + offset
-    ax_dtec.plot([x_bar, x_bar], [y_bot, y_top], color="0.15", linewidth=2.0, zorder=4)
-    ax_dtec.text(x_bar + 2 * cap, (y_bot + y_top) / 2, f"{offset:g} TECU", fontsize=8, va="center", color="0.15")
+        sel = df["pair"].isin(chosen_pairs)
+        h0 = float(df.loc[sel, "t_hours"].min())
+        h1 = float(df.loc[sel, "t_hours"].max())
+        span = h1 - h0
+        x_bar = h0 + 0.015 * span
+        cap = 0.004 * span
+        y_bot = baselines[-1] + 0.25 * offset
+        y_top = y_bot + offset
+        ax_dtec.plot([x_bar, x_bar], [y_bot, y_top], color="0.15", linewidth=2.0, zorder=4)
+        ax_dtec.text(x_bar + 2 * cap, (y_bot + y_top) / 2, f"{offset:g} TECU", fontsize=FONT_SIZE_ANNOTATION, va="center", color="0.15")
 
-    try:
-        # Puxamos os dados da função existente em lightning_spectrogram.py
-        lfr_series = load_lightning_lfr(
+        try:
+            # Puxamos os dados da função existente em lightning_spectrogram.py
+            lfr_series = load_lightning_lfr(
+                year, doy, lat_range=eff_lightning_lat_range, lon_range=eff_lightning_lon_range, time_range=eff_time_range
+            )
+        
+            if lfr_series is not None:
+                # Converte a taxa de flashes/s para flashes/minuto
+                lfr_rate = lfr_series.values * 60.0
+            
+                # =========================================================
+                # Filtro Butterworth para a série de raios (LFR)
+                # =========================================================
+                sample_rate_sec_lfr = 15.0 
+                fs_lfr = 1.0 / sample_rate_sec_lfr
+                nyq_lfr = 0.5 * fs_lfr
+            
+                lfr_min_period_min = 1.2
+                lfr_max_period_min = 7.0
+            
+                low_lfr = (1.0 / (lfr_max_period_min * 60.0)) / nyq_lfr
+                high_lfr = (1.0 / (lfr_min_period_min * 60.0)) / nyq_lfr
+            
+                b_lfr, a_lfr = butter(4, [low_lfr, high_lfr], btype='band')
+                lfr_rate_filt = filtfilt(b_lfr, a_lfr, lfr_rate)
+                # =========================================================
+            
+                # Recria o eixo de tempo (horas decimais), baseado na taxa de amostragem de 15s
+                h0_lfr, _ = eff_time_range
+                t_lfr = h0_lfr + np.arange(len(lfr_rate)) * 15.0 / 3600.0
+            
+                # 1. Plota os dados originais no eixo Y esquerdo (padrão)
+                ax_lfr.plot(t_lfr, lfr_rate, color="black", linewidth=1.5, label="Original")
+                ax_lfr.fill_between(t_lfr, 0, lfr_rate, color="grey", alpha=0.4)
+                ax_lfr.set_ylabel("LFR (flashes/min)", color="black")
+                ax_lfr.tick_params(axis='y', labelcolor="black")
+                ax_lfr.set_ylim(bottom=0)
+                ax_lfr.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
+            
+                # # 2. Cria o segundo eixo Y à direita e plota os dados filtrados
+                # ax_lfr_twin = ax_lfr.twinx()
+                # ax_lfr_twin.plot(t_lfr, lfr_rate_filt, color="blue", linewidth=1.5, label="Butterworth")
+                # ax_lfr_twin.set_ylabel(r"$\Delta$ LFR (flashes/min)", color="blue")
+                # ax_lfr_twin.tick_params(axis='y', labelcolor="blue")
+                # ax_lfr_twin.set_ylim(-300, 300)
+                # ax_lfr_twin.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
+            
+                # # Junta as legendas dos dois eixos
+                # lines_1, labels_1 = ax_lfr.get_legend_handles_labels()
+                # lines_2, labels_2 = ax_lfr_twin.get_legend_handles_labels()
+                # ax_lfr.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper right", fontsize=FONT_SIZE_LEGEND)
+            
+            else:
+                ax_lfr.text(0.5, 0.5, "No lightning data for timeseries", transform=ax_lfr.transAxes, ha="center", va="center", color="red")
+            
+        except Exception as e:
+            ax_lfr.text(0.5, 0.5, f"LFR timeseries error / missing data\n({e})", transform=ax_lfr.transAxes, ha="center", va="center", color="red")
+
+        spec_result = lfr_spectrogram(
             year, doy, lat_range=eff_lightning_lat_range, lon_range=eff_lightning_lon_range, time_range=eff_time_range
         )
+        if spec_result is not None:
+            t_hours_spec, freq, power = spec_result
+            cf = ax_spec.contourf(t_hours_spec, freq, power, cmap="nipy_spectral", levels=20)
         
-        if lfr_series is not None:
-            # Converte a taxa de flashes/s para flashes/minuto
-            lfr_rate = lfr_series.values * 60.0
-            
+            # Aumentamos o 'pad' de 0.02 para 0.08 para dar espaço ao novo eixo Y
+            # fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.08, label="log10(power)")
+            ax_spec.set_title(f"Wavelet power — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=FONT_SIZE_SUBTITLE)
+        
             # =========================================================
-            # Filtro Butterworth para a série de raios (LFR)
+            # NOVO CÓDIGO: Eixo secundário (Período em minutos)
             # =========================================================
-            sample_rate_sec_lfr = 15.0 
-            fs_lfr = 1.0 / sample_rate_sec_lfr
-            nyq_lfr = 0.5 * fs_lfr
+            # Funções de conversão (frequência em mHz <-> período em minutos)
+            # T(min) = (1 / (f * 10^-3)) / 60 = 1000 / (f * 60)
+            # Funções de conversão (frequência em mHz <-> período em minutos)
+            def mhz_to_min(f):
+                # Cria um array seguro substituindo 0 por 1 apenas para a matemática não reclamar
+                f_safe = np.where(f == 0, 1.0, f)
+                return np.where(f == 0, np.inf, 1000.0 / (f_safe * 60.0))
             
-            lfr_min_period_min = 1.2
-            lfr_max_period_min = 7.0
-            
-            low_lfr = (1.0 / (lfr_max_period_min * 60.0)) / nyq_lfr
-            high_lfr = (1.0 / (lfr_min_period_min * 60.0)) / nyq_lfr
-            
-            b_lfr, a_lfr = butter(4, [low_lfr, high_lfr], btype='band')
-            lfr_rate_filt = filtfilt(b_lfr, a_lfr, lfr_rate)
+            def min_to_mhz(p):
+                p_safe = np.where(p == 0, 1.0, p)
+                return np.where(p == 0, np.inf, 1000.0 / (p_safe * 60.0))
+
+            # Cria o eixo secundário acoplado ao ax_spec
+            ax_spec_period = ax_spec.secondary_yaxis('right', functions=(mhz_to_min, min_to_mhz))
+            ax_spec_period.set_ylabel("Period (minutes)")
+            ax_spec_period.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
+        
+            # Opcional: Define ticks manuais se a escala automática ficar com números "quebrados"
+            # ax_spec_period.set_yticks([2, 5, 10, 15, 30])
+            # ax_spec_period.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
             # =========================================================
-            
-            # Recria o eixo de tempo (horas decimais), baseado na taxa de amostragem de 15s
-            h0_lfr, _ = eff_time_range
-            t_lfr = h0_lfr + np.arange(len(lfr_rate)) * 15.0 / 3600.0
-            
-            # 1. Plota os dados originais no eixo Y esquerdo (padrão)
-            ax_lfr.plot(t_lfr, lfr_rate, color="black", linewidth=1.5, label="Original")
-            ax_lfr.fill_between(t_lfr, 0, lfr_rate, color="grey", alpha=0.4)
-            ax_lfr.set_ylabel("LFR (flashes/min)", color="black")
-            ax_lfr.tick_params(axis='y', labelcolor="black")
-            ax_lfr.set_ylim(bottom=0)
-            
-            # 2. Cria o segundo eixo Y à direita e plota os dados filtrados
-            ax_lfr_twin = ax_lfr.twinx()
-            ax_lfr_twin.plot(t_lfr, lfr_rate_filt, color="blue", linewidth=1.5, label="Butterworth")
-            ax_lfr_twin.set_ylabel(r"$\Delta$ LFR (flashes/min)", color="blue")
-            ax_lfr_twin.tick_params(axis='y', labelcolor="blue")
-            ax_lfr_twin.set_ylim(-300, 300)
-            
-            # Junta as legendas dos dois eixos
-            lines_1, labels_1 = ax_lfr.get_legend_handles_labels()
-            lines_2, labels_2 = ax_lfr_twin.get_legend_handles_labels()
-            ax_lfr.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper right", fontsize=8)
-            
+        
         else:
-            ax_lfr.text(0.5, 0.5, "No lightning data for timeseries", transform=ax_lfr.transAxes, ha="center", va="center", color="red")
-            
-    except Exception as e:
-        ax_lfr.text(0.5, 0.5, f"LFR timeseries error / missing data\n({e})", transform=ax_lfr.transAxes, ha="center", va="center", color="red")
+            ax_spec.text(0.5, 0.5, "No lightning data for wavelet", transform=ax_spec.transAxes, ha="center", va="center")
+        
+        ax_spec.set_ylabel("Frequency (mHz)")
+        ax_spec.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
+        ax_spec.set_xlabel("Time (UTC, hours)")
 
-    spec_result = lfr_spectrogram(
-        year, doy, lat_range=eff_lightning_lat_range, lon_range=eff_lightning_lon_range, time_range=eff_time_range
-    )
-    if spec_result is not None:
-        t_hours_spec, freq, power = spec_result
-        cf = ax_spec.contourf(t_hours_spec, freq, power, cmap="nipy_spectral", levels=20)
-        
-        # Aumentamos o 'pad' de 0.02 para 0.08 para dar espaço ao novo eixo Y
-        # fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.08, label="log10(power)")
-        ax_spec.set_title(f"Wavelet power — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=9)
-        
-        # =========================================================
-        # NOVO CÓDIGO: Eixo secundário (Período em minutos)
-        # =========================================================
-        # Funções de conversão (frequência em mHz <-> período em minutos)
-        # T(min) = (1 / (f * 10^-3)) / 60 = 1000 / (f * 60)
-        # Funções de conversão (frequência em mHz <-> período em minutos)
-        def mhz_to_min(f):
-            # Cria um array seguro substituindo 0 por 1 apenas para a matemática não reclamar
-            f_safe = np.where(f == 0, 1.0, f)
-            return np.where(f == 0, np.inf, 1000.0 / (f_safe * 60.0))
-            
-        def min_to_mhz(p):
-            p_safe = np.where(p == 0, 1.0, p)
-            return np.where(p == 0, np.inf, 1000.0 / (p_safe * 60.0))
-
-        # Cria o eixo secundário acoplado ao ax_spec
-        ax_spec_period = ax_spec.secondary_yaxis('right', functions=(mhz_to_min, min_to_mhz))
-        ax_spec_period.set_ylabel("Period (minutes)")
-        
-        # Opcional: Define ticks manuais se a escala automática ficar com números "quebrados"
-        # ax_spec_period.set_yticks([2, 5, 10, 15, 30])
-        # ax_spec_period.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
-        # =========================================================
-        
-    else:
-        ax_spec.text(0.5, 0.5, "No lightning data for wavelet", transform=ax_spec.transAxes, ha="center", va="center")
-        
-    ax_spec.set_ylabel("Frequency (mHz)")
-    ax_spec.set_xlabel("Time (UTC, hours)")
-
-    ax_spec.set_xlim(h0, h1)
-    # for ax in (ax_dtec, ax_lfr, ax_spec):
-    #     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    #     ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
+        ax_spec.set_xlim(h0, h1)
+        # for ax in (ax_dtec, ax_lfr, ax_spec):
+        #     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+        #     ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
        
-    #     ax.grid(True, which="major", axis="x", color="black", linewidth=1., linestyle="--", alpha=1.0, zorder=0)
-    #     ax.grid(True, which="minor", axis="both", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
-    #     ax.grid(True, which="major", axis="y", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
+        #     ax.grid(True, which="major", axis="x", color="black", linewidth=1., linestyle="--", alpha=1.0, zorder=0)
+        #     ax.grid(True, which="minor", axis="both", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
+        #     ax.grid(True, which="major", axis="y", color="gray", linewidth=0.6, linestyle=":", alpha=0.6, zorder=0)
     
-    # #% Vertical lines
-    # #2026 202 1000-1500
-    # markers = "1025 1055 1145 1202 1310".split()
+        # #% Vertical lines
+        # #2026 202 1000-1500
+        # markers = "1025 1055 1145 1202 1310".split()
     
-    # #2026 202 1500-2100
-    # markers = "1510 1555 1650 1740 1800 1900 2000".split() 
+        # #2026 202 1500-2100
+        # markers = "1510 1555 1650 1740 1800 1900 2000".split() 
     
-    # #2026 203 1300-1700
-    # markers = "1305 1430 1500 1630".split() 
+        # #2026 203 1300-1700
+        # markers = "1305 1430 1500 1630".split() 
     
-    # #2026 204 1500-2100
-    # markers = "1600 1635 1705".split() 
+        # #2026 204 1500-2100
+        # markers = "1600 1635 1705".split() 
     
-    #% Times spans
-    spans = "1606-1615 1628-1635".split()
+        #% Times spans
+        spans = "1540-1640".split()
     
-    for ax in (ax_dtec, ax_lfr, ax_spec):
-            ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-            ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
+        for ax in (ax_dtec, ax_lfr, ax_spec):
+                ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+                ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
+                ax.xaxis.set_minor_formatter(ticker.FuncFormatter(_hours_to_hhmm))
+                ax.tick_params(axis="x", which="minor", labelsize=FONT_SIZE_TICK_MINOR,
+                                labelrotation=MINOR_TICK_LABEL_ROTATION)
             
-            ax.grid(True, which="both", color="gray", lw=0.6, ls=":", alpha=0.6, zorder=0)
-            ax.grid(True, which="major", axis="x", color="black", lw=1.0, ls="--", alpha=1.0, zorder=0)
+                ax.grid(True, which="both", color="gray", lw=0.6, ls=":", alpha=0.6, zorder=0)
+                ax.grid(True, which="major", axis="x", color="black", lw=1.0, ls="--", alpha=1.0, zorder=0)
             
-            _add_time_markers(ax, year, doy)
-            _add_time_spans(ax, spans)
+                _add_time_markers(ax, year, doy)
+                _add_time_spans(ax, spans)
             
             
 
             
             
-    # =======================================================
-    # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
-    # =======================================================
-    fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
-             horizontalalignment='right', 
-             verticalalignment='bottom', 
-             fontsize=10, 
-             color='black', 
-             alpha=0.7)
-    # =======================================================
+        # =======================================================
+        # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
+        # =======================================================
+        fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
+                 horizontalalignment='right', 
+                 verticalalignment='bottom', 
+                 fontsize=FONT_SIZE_FOOTER, 
+                 color='black', 
+                 alpha=0.7)
+        # =======================================================
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Image saved: {out_path}")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Image saved: {out_path}")
     
-    # Imprime um par por linha
-    for pair in chosen_pairs:
-        print(f'"{pair}",')
+        # Imprime um par por linha
+        for pair in chosen_pairs:
+            print(f'"{pair}",')
         
-    print("-" * 40) # Linha divisória
-    # =======================================================
-    return out_path
+        print("-" * 40) # Linha divisória
+        # =======================================================
+        return out_path
 
 
 # ==========================================================================
@@ -726,7 +801,9 @@ def run(
     # ======================================================================
     if out_path is None:
         t0, t1 = time_range
-        file_name = f"{kind}_{year}-{doy:03d}_{t0}-{t1}_{mode}.png"
+        t0_str = _hours_to_hhmm(t0).replace(":", "")
+        t1_str = _hours_to_hhmm(t1).replace(":", "")
+        file_name = f"{kind}_{year}-{doy:03d}_{t0_str}-{t1_str}_{mode}.png"
         out_path = ttd_figs_dir() / file_name
         
     # Prevenção: verifica e avisa antes de rodar queries se já existir
@@ -1093,7 +1170,7 @@ if __name__ == "__main__":
         
         manual_runs = [
             {
-                "year": 2021, "doy": 296, "tbeg": 15 +40/60, "tend": 16+50/60,
+                "year": 2021, "doy": 296, "tbeg": 15 +20/60, "tend": 17+20/60,
                 "pairs": [
                     "mspp · G02",
                     "spdr · G29",
