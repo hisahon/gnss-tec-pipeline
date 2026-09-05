@@ -10,6 +10,7 @@ import argparse
 import re
 import os
 from pathlib import Path
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -52,14 +53,14 @@ FONT_FAMILY = "serif"
 
 # Tamanhos de fonte (em pt) usados na figura combinada (plot_combined_panels)
 FONT_SIZE_TITLE       = 20   # titulo principal do painel dTEC (ax_dtec)
-FONT_SIZE_SUBTITLE    = 16    # subtitulo do painel de wavelet (ax_spec)
-FONT_SIZE_AXIS_LABEL  = 16   # rotulos dos eixos (xlabel / ylabel)
-FONT_SIZE_TICK        = 18   # numeros dos eixos (ticks)
-FONT_SIZE_PAIR_LABELS = 16   # rotulos "estacao x PRN" no eixo Y do painel dTEC
-FONT_SIZE_LEGEND      = 16    # legendas (LFR original/filtrado)
-FONT_SIZE_ANNOTATION  = 16    # anotacoes (barra de escala "TECU")
-FONT_SIZE_FOOTER      = 16   # texto de rodape (script/funcao/pasta)
-FONT_SIZE_TICK_MINOR  = 16    # rotulos dos minor ticks do eixo X (formato HH:MM)
+FONT_SIZE_SUBTITLE    = 20    # subtitulo do painel de wavelet (ax_spec)
+FONT_SIZE_AXIS_LABEL  = 20   # rotulos dos eixos (xlabel / ylabel)
+FONT_SIZE_TICK        = 20   # numeros dos eixos (ticks)
+FONT_SIZE_PAIR_LABELS = 20   # rotulos "estacao x PRN" no eixo Y do painel dTEC
+FONT_SIZE_LEGEND      = 20    # legendas (LFR original/filtrado)
+FONT_SIZE_ANNOTATION  = 20    # anotacoes (barra de escala "TECU")
+FONT_SIZE_FOOTER      = 20   # texto de rodape (script/funcao/pasta)
+FONT_SIZE_TICK_MINOR  = 20    # rotulos dos minor ticks do eixo X (formato HH:MM)
 
 # Numero minimo de ticks garantido nos eixos verticais que usam locator
 # automatico (LFR, LFR filtrado, frequencia do wavelet e periodo), mesmo
@@ -104,6 +105,12 @@ TIME_COL = "horario"     # datetime  (parquet index)
 LAT_COL  = "lts"         # IPP latitude  (deg)
 LON_COL  = "lns"         # IPP longitude (deg)
 PRN_COL  = "prn"         # satellite id column inside each parquet
+
+
+def doy_to_ymd(year: int, doy: int) -> str:
+    """Converte ano + dia-do-ano (DOY) para string no formato YYYY/MM/DD."""
+    date = datetime(int(year), 1, 1) + timedelta(days=int(doy) - 1)
+    return date.strftime("%Y/%m/%d")
 
 
 # ==========================================================================
@@ -279,7 +286,7 @@ def select_pairs_by_hilbert(
                 plt.xlim(TIME_RANGE[0], TIME_RANGE[1])
                 plt.ylim(-0.5, 0.5)
                 
-                plt.title(f'{pair} amp.max: {max_envelope:.4f} Date: {tyear}{tdoy} {TIME_RANGE[0]}-{TIME_RANGE[1]}', fontsize=12)
+                plt.title(f'{pair} amp.max: {max_envelope:.4f} Date: {doy_to_ymd(tyear, tdoy)} {TIME_RANGE[0]}-{TIME_RANGE[1]}', fontsize=12)
                 
                 plt.gca().spines['top'].set_visible(False)
                 plt.gca().spines['right'].set_visible(False)
@@ -365,7 +372,7 @@ def plot_pairs_lines(
     h0 = float(df.loc[sel, "t_hours"].min())
     h1 = float(df.loc[sel, "t_hours"].max())
     ax.set_xlim(h0, h1)
-    ax.set_xlabel("Time (UTC, hours)")
+    ax.set_xlabel("Time, UTC hours")
     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
     ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
     ax.grid(True, which="major", axis="x", linestyle=":", alpha=0.4)
@@ -379,7 +386,7 @@ def plot_pairs_lines(
     ax.plot([x_bar, x_bar], [y_bot, y_top], color="0.15", linewidth=2.0, zorder=4)
     ax.text(x_bar + 2 * cap, (y_bot + y_top) / 2, f"{offset:g} TECU", fontsize=8, va="center", color="0.15")
 
-    title = f"dTEC line stack by receiver-PRN — {year} DOY {doy:03d}  |  {len(chosen_pairs)} pair(s)"
+    title = f"dTEC line stack by receiver-PRN — {doy_to_ymd(year, doy)}  |  {len(chosen_pairs)} pair(s)"
     ax.set_title(title)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -447,7 +454,7 @@ def plot_pairs_trajectory(
 
     sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap))
     sm.set_array([])
-    fig.colorbar(sm, ax=(ax_lon, ax_lat), location="right", shrink=1.0, pad=0.02, label="dTEC (TECU)")
+    fig.colorbar(sm, ax=(ax_lon, ax_lat), location="right", shrink=1.0, pad=0.02, label="dTEC, TECU")
 
     ax_lon.set_ylabel("IPP longitude, deg")
     ax_lat.set_ylabel("IPP latitude, deg")
@@ -458,10 +465,10 @@ def plot_pairs_trajectory(
             t_hours_spec, freq, power = spec_result
             cf = ax_spec.contourf(t_hours_spec, freq, power, cmap="nipy_spectral", levels=20)
             fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.02, label="log10(power)")
-        ax_spec.set_ylabel("Frequency (mHz)")
+        ax_spec.set_ylabel("Frequency, mHz")
 
     bottom_ax = ax_spec if add_spectrogram else ax_lat
-    bottom_ax.set_xlabel("Time (UTC, hours)")
+    bottom_ax.set_xlabel("Time, UTC hours")
     bottom_ax.set_xlim(float(sub["t_hours"].min()), float(sub["t_hours"].max()))
     
     axes_all = (ax_lon, ax_lat, ax_spec) if add_spectrogram else (ax_lon, ax_lat)
@@ -469,7 +476,7 @@ def plot_pairs_trajectory(
         ax.set_axisbelow(False)
         ax.grid(True, linestyle=":", alpha=1., zorder=5)
         
-    ax_lon.set_title(f"TRAVEL TIME DIAGRAM: {year}-{doy:03d} | {len(chosen_pairs)} pair(s)")
+    ax_lon.set_title(f"TRAVEL TIME DIAGRAM: {doy_to_ymd(year, doy)} | {len(chosen_pairs)} pair(s)")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=dpi, bbox_inches="tight")
@@ -498,6 +505,24 @@ def _hours_to_hhmm(x, pos=None):
     return f"{hh:02d}:{mm:02d}"
 
 
+def _hours_to_hhmm_even_minutes(x, pos=None):
+    """Como _hours_to_hhmm, mas só retorna rótulo nos minutos 'pares' da
+    grade de minor ticks (a cada 20 min: :00, :20, :40, ...), deixando os
+    ticks intermediários (:10, :30, :50) sem label -- permite aumentar a
+    fonte dos rótulos sem sobrepor."""
+    x = x % 24
+    hh = int(x)
+    mm = int(round((x - hh) * 60))
+    if mm == 60:
+        mm = 0
+        hh = (hh + 1) % 24
+    # Cada passo do minor locator equivale a 10 min; mantemos o label
+    # apenas nos passos "pares" (índice par -> minuto múltiplo de 20).
+    if (mm // 10) % 2 != 0:
+        return ""
+    return f"{hh:02d}:{mm:02d}"
+
+
 # TIME_MARKERS = {
 #     # (2021, 296):"".split(),
 #     (2026, 202): "1025 1055 1145 1202 1310 1510 1555 1650 1740 1800 1900 2000".split(),
@@ -513,7 +538,16 @@ TIME_MARKERS = {
     (2026, 204): "1640".split(),
 }
 
-def _add_time_markers(ax, year, doy, color="lime", lw=2, ls="--", zorder=10):
+# TIME_SPANS = {
+#     (2026, 203): "1305-1335".split(),
+#     (2026, 204): "1600-1635".split(),
+# }
+
+TIME_SPANS = {
+    (2021, 296): "1540-1640".split(),
+}
+
+def _add_time_markers(ax, year, doy, color="blue", lw=2, ls="--", zorder=10):
     """Desenha axvlines a partir de horários 'HHMM' cadastrados em TIME_MARKERS
     para o (year, doy) informado."""
     times = TIME_MARKERS.get((year, doy))
@@ -523,8 +557,11 @@ def _add_time_markers(ax, year, doy, color="lime", lw=2, ls="--", zorder=10):
         ax.axvline(x=_hhmm_to_hours(t), color=color, lw=lw, ls=ls, zorder=zorder)
 
 
-def _add_time_spans(ax, spans, color="gray", alpha=0.2, zorder=5):
-    """Destaca intervalos de tempo com área sombreada (axvspan)."""
+def _add_time_spans(ax, year, doy, color="gray", alpha=0.2, zorder=5):
+    """Destaca intervalos de tempo com área sombreada (axvspan), a partir de
+    intervalos 'HHMM-HHMM' cadastrados em TIME_SPANS para o (year, doy)
+    informado -- mesmo padrão de _add_time_markers."""
+    spans = TIME_SPANS.get((year, doy))
     if not spans:
         return
     for span in spans:
@@ -581,10 +618,10 @@ def plot_combined_panels(
         bot_pad = 0.6 * offset
         top_pad = 1.4 * offset
         ax_dtec.set_ylim(baselines[0] - bot_pad, baselines[-1] + top_pad)
-        ax_dtec.set_ylabel("Receiver-PRN (dTEC)")
+        ax_dtec.set_ylabel("Receiver-PRN dTEC, TECU")
     
         # movavg = int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
-        title = f"{year} DOY {doy:03d} | {len(chosen_pairs)} pair(s) | offset {offset:g} TECU"
+        title = f"{doy_to_ymd(year, doy)} | {len(chosen_pairs)} pair(s) | offset {offset:g} TECU"
         ax_dtec.set_title(title)
 
         sel = df["pair"].isin(chosen_pairs)
@@ -605,8 +642,8 @@ def plot_combined_panels(
             )
         
             if lfr_series is not None:
-                # Converte a taxa de flashes/s para flashes/minuto
-                lfr_rate = lfr_series.values * 60.0
+                # LFR já vem em flashes/s, que é a definição da grandeza — mantido sem conversão
+                lfr_rate = lfr_series.values
             
                 # =========================================================
                 # Filtro Butterworth para a série de raios (LFR)
@@ -632,7 +669,7 @@ def plot_combined_panels(
                 # 1. Plota os dados originais no eixo Y esquerdo (padrão)
                 ax_lfr.plot(t_lfr, lfr_rate, color="black", linewidth=1.5, label="Original")
                 ax_lfr.fill_between(t_lfr, 0, lfr_rate, color="grey", alpha=0.4)
-                ax_lfr.set_ylabel("LFR (flashes/min)", color="black")
+                ax_lfr.set_ylabel("LFR, flashes/sec", color="black")
                 ax_lfr.tick_params(axis='y', labelcolor="black")
                 ax_lfr.set_ylim(bottom=0)
                 ax_lfr.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
@@ -640,7 +677,7 @@ def plot_combined_panels(
                 # # 2. Cria o segundo eixo Y à direita e plota os dados filtrados
                 # ax_lfr_twin = ax_lfr.twinx()
                 # ax_lfr_twin.plot(t_lfr, lfr_rate_filt, color="blue", linewidth=1.5, label="Butterworth")
-                # ax_lfr_twin.set_ylabel(r"$\Delta$ LFR (flashes/min)", color="blue")
+                # ax_lfr_twin.set_ylabel(r"$\Delta$ LFR, flashes/s", color="blue")
                 # ax_lfr_twin.tick_params(axis='y', labelcolor="blue")
                 # ax_lfr_twin.set_ylim(-300, 300)
                 # ax_lfr_twin.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
@@ -684,7 +721,7 @@ def plot_combined_panels(
 
             # Cria o eixo secundário acoplado ao ax_spec
             ax_spec_period = ax_spec.secondary_yaxis('right', functions=(mhz_to_min, min_to_mhz))
-            ax_spec_period.set_ylabel("Period (minutes)")
+            ax_spec_period.set_ylabel("Period, min")
             ax_spec_period.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
         
             # Opcional: Define ticks manuais se a escala automática ficar com números "quebrados"
@@ -695,9 +732,9 @@ def plot_combined_panels(
         else:
             ax_spec.text(0.5, 0.5, "No lightning data for wavelet", transform=ax_spec.transAxes, ha="center", va="center")
         
-        ax_spec.set_ylabel("Frequency (mHz)")
+        ax_spec.set_ylabel("Frequency, mHz")
         ax_spec.yaxis.set_major_locator(ticker.MaxNLocator(nbins="auto", min_n_ticks=MIN_Y_TICKS))
-        ax_spec.set_xlabel("Time (UTC, hours)")
+        ax_spec.set_xlabel("Time, UTC hours")
 
         ax_spec.set_xlim(h0, h1)
         # for ax in (ax_dtec, ax_lfr, ax_spec):
@@ -721,21 +758,18 @@ def plot_combined_panels(
         # #2026 204 1500-2100
         # markers = "1600 1635 1705".split() 
     
-        #% Times spans
-        spans = "1540-1640".split()
-    
         for ax in (ax_dtec, ax_lfr, ax_spec):
                 ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
                 ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
-                ax.xaxis.set_minor_formatter(ticker.FuncFormatter(_hours_to_hhmm))
+                ax.xaxis.set_minor_formatter(ticker.FuncFormatter(_hours_to_hhmm_even_minutes))
                 ax.tick_params(axis="x", which="minor", labelsize=FONT_SIZE_TICK_MINOR,
                                 labelrotation=MINOR_TICK_LABEL_ROTATION)
             
-                ax.grid(True, which="both", color="gray", lw=0.6, ls=":", alpha=0.6, zorder=0)
+                ax.grid(True, which="both", color="gray", lw=0.8, ls=":", alpha=1.0, zorder=0)
                 ax.grid(True, which="major", axis="x", color="black", lw=1.0, ls="--", alpha=1.0, zorder=0)
             
                 _add_time_markers(ax, year, doy)
-                _add_time_spans(ax, spans)
+                _add_time_spans(ax, year, doy)
             
             
 
@@ -744,12 +778,13 @@ def plot_combined_panels(
         # =======================================================
         # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
         # =======================================================
-        fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
-                 horizontalalignment='right', 
-                 verticalalignment='bottom', 
-                 fontsize=FONT_SIZE_FOOTER, 
-                 color='black', 
-                 alpha=0.7)
+        if False:
+            fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
+                     horizontalalignment='right', 
+                     verticalalignment='bottom', 
+                     fontsize=FONT_SIZE_FOOTER, 
+                     color='black', 
+                     alpha=0.7)
         # =======================================================
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
