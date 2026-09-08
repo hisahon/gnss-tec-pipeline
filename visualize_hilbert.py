@@ -545,6 +545,9 @@ TIME_MARKERS = {
 
 TIME_SPANS = {
     (2021, 296): "1540-1640".split(),
+    (2023, 347): "1530-1630".split(),
+    (2026, 203): "1430-1530".split(),
+    (2026, 204): "1610-1710".split(),
 }
 
 def _add_time_markers(ax, year, doy, color="blue", lw=2, ls="--", zorder=10):
@@ -667,6 +670,8 @@ def plot_combined_panels(
                 t_lfr = h0_lfr + np.arange(len(lfr_rate)) * 15.0 / 3600.0
             
                 # 1. Plota os dados originais no eixo Y esquerdo (padrão)
+                ax_lfr.set_title(f"Lightning Flash Rate (LFR)", fontsize=FONT_SIZE_SUBTITLE)
+            
                 ax_lfr.plot(t_lfr, lfr_rate, color="black", linewidth=1.5, label="Original")
                 ax_lfr.fill_between(t_lfr, 0, lfr_rate, color="grey", alpha=0.4)
                 ax_lfr.set_ylabel("LFR, flashes/sec", color="black")
@@ -702,7 +707,7 @@ def plot_combined_panels(
         
             # Aumentamos o 'pad' de 0.02 para 0.08 para dar espaço ao novo eixo Y
             # fig.colorbar(cf, ax=ax_spec, location="right", shrink=1.0, pad=0.08, label="log10(power)")
-            ax_spec.set_title(f"Wavelet power — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=FONT_SIZE_SUBTITLE)
+            ax_spec.set_title(f"Normalized Wavelet power — Lightning Flash Rate (Morlet, {WAV_FREQ_BOUNDS[0]}–{WAV_FREQ_BOUNDS[1]} mHz)", fontsize=FONT_SIZE_SUBTITLE)
         
             # =========================================================
             # NOVO CÓDIGO: Eixo secundário (Período em minutos)
@@ -1146,34 +1151,34 @@ if __name__ == "__main__":
         # #     }
         # # ]
         
-        # manual_runs = [
-        #     {
-        #         "year": 2026, "doy": 204, "tbeg": 16, "tend": 17 + 40/60,
-        #         "pairs": [
-        #                 "caep · R18",
-        #                 "neia · R18",
-        #                 "itai · G11",
-        #                 "rscl · E34",
-        #                 "rscl · G11",
-        #                 "scaq · R18",
-        #                 "scbl · R18",
-        #                 "stha · R18",
+        manual_runs = [
+            {
+                "year": 2026, "doy": 204, "tbeg": 15+30/60, "tend": 17 + 40/60,
+                "pairs": [
+                        "caep · R18",
+                        "neia · R18",
+                        "itai · G11",
+                        "rscl · E34",
+                        "rscl · G11",
+                        "scaq · R18",
+                        "scbl · R18",
+                        "stha · R18",
                         
-        #                 "stha · G29",
-        #                 "uyvi · G29",
-        #                 "itai · R18",
-        #                 "itai · G29",
+                        "stha · G29",
+                        "uyvi · G29",
+                        "itai · R18",
+                        "itai · G29",
 
-        #                 "prcl · G29",
-        #                 "puma · G11",
-        #                 "eesc · G29",
-        #                 "fosa · R18",
-        #                 "guai · R18",
-        #                 "rosa · G29",
-        #                 "py01 · R18",
-        #     ]
-        #     }
-        # ]
+                        "prcl · G29",
+                        "puma · G11",
+                        "eesc · G29",
+                        "fosa · R18",
+                        "guai · R18",
+                        "rosa · G29",
+                        "py01 · R18",
+            ]
+            }
+        ]
         
         # manual_runs = [
         #     {
@@ -1211,29 +1216,29 @@ if __name__ == "__main__":
         #     }
         # ]
         
-        manual_runs = [
-            {
-                "year": 2021, "doy": 296, "tbeg": 15 +20/60, "tend": 17+20/60,
-                "pairs": [
-                    "mspp · G02",
-                    "spdr · G29",
-                    "msjr · G02",
-                        "coru · E11",
-                        "coru · G02",
-                        "coru · G11",
-                        "ilha · G29",
-                        "mspm · G12",
-                        "msaq · G25",
-                        "msbl · R13",
-                        "msdr · E02",
-                        "msdr · G25",
-                        "mspm · G25",
-                        "mspm · R13",
+        # manual_runs = [
+        #     {
+        #         "year": 2021, "doy": 296, "tbeg": 15 +20/60, "tend": 17+20/60,
+        #         "pairs": [
+        #             "mspp · G02",
+        #             "spdr · G29",
+        #             "msjr · G02",
+        #                 "coru · E11",
+        #                 "coru · G02",
+        #                 "coru · G11",
+        #                 "ilha · G29",
+        #                 "mspm · G12",
+        #                 "msaq · G25",
+        #                 "msbl · R13",
+        #                 "msdr · E02",
+        #                 "msdr · G25",
+        #                 "mspm · G25",
+        #                 "mspm · R13",
                         
                         
-            ]
-            }
-        ]
+        #     ]
+        #     }
+        # ]
 
         LAT_RANGE = (-32.01, -17.99)    
         LON_RANGE = (-62.01, -47.99)    
