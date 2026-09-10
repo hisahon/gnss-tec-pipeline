@@ -783,7 +783,7 @@ def plot_combined_panels(
         # =======================================================
         # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
         # =======================================================
-        if False:
+        if True:
             fig.text(0.9, -0.01, 'Script: gnss-tec-pipeline/visualize_hilbert.py\nFunction: plot_combined_panels\nStorage: database/ionosphere/keograms_TTDs/', 
                      horizontalalignment='right', 
                      verticalalignment='bottom', 
@@ -1107,114 +1107,114 @@ if __name__ == "__main__":
         #     }
         # ]
         
-        # # manual_runs = [
-        # #     {
-        # #         "year": 2023, "doy": 347, "tbeg": 15, "tend": 18,
-        # #         "pairs": [
-        # #         # "yema · G23",
-        # #         # "uba1 · G26",
-        # #         # "tatu · G32",
-        # #         "tatu · G23",
-        # #         "spdr · R01",
-        # #         "rosa · R17",
-        # #         "rosa · E13",
-        # #         "rcro · E03",
-        # #         "py01 · R02",
-        # #         "py01 · G10",
-        # #         # "puma · G32",
-        # #         "puma · R02",
-        # #         "prur · G27",
-        # #         "prgu · E13",
-        # #         "prcl · E13",
-        # #         "mspp · R17",
-        # #         "mspp · G27",
-        # #         # "mspp · E03",
-        # #         "msnv · R17",
-        # #         "msnv · G27",
-        # #         # "msnv · R02",
-        # #         # "msmn · R02",
-        # #         "msmn · E13",
-        # #         "msmj · R17",
-        # #         "msmj · G27",
-        # #         "msjr · R17",
-        # #         # "msjr · R02",
-        # #         # "msjr · R01",
-        # #         "msdr · R17",
-        # #         "msbl · G27",
-        # #         "msbl · R17",
-        # #         "msbl · G27",
-        # #         "itai · E13",
-        # #         "guai · R17",
-        # #         "guai · G27",
-        # #         "guai · E13"
-        # #     ]
-        # #     }
-        # # ]
-        
-        manual_runs = [
-            {
-                "year": 2026, "doy": 204, "tbeg": 15+30/60, "tend": 17 + 40/60,
-                "pairs": [
-                        "caep · R18",
-                        "neia · R18",
-                        "itai · G11",
-                        "rscl · E34",
-                        "rscl · G11",
-                        "scaq · R18",
-                        "scbl · R18",
-                        "stha · R18",
-                        
-                        "stha · G29",
-                        "uyvi · G29",
-                        "itai · R18",
-                        "itai · G29",
-
-                        "prcl · G29",
-                        "puma · G11",
-                        "eesc · G29",
-                        "fosa · R18",
-                        "guai · R18",
-                        "rosa · G29",
-                        "py01 · R18",
-            ]
-            }
-        ]
-        
         # manual_runs = [
         #     {
-        #         "year": 2026, "doy": 203, "tbeg": 14, "tend": 16,
+        #         "year": 2023, "doy": 347, "tbeg": 15, "tend": 17 + 20/60,
         #         "pairs": [
-        #             # "caep · G11",
-        #             # "coru · E13",
-        #             # "dino · G06",
-        #             "eesc · E23",
-        #             "fosa · G11",
-        #             "gogy · G12",
-        #             "mgla · R03",
-        #             "msdr · E13",
-        #             "msdr · R24",
-        #             # "oran · G06",
-        #             "ppte · E23",
-        #             "ppte · G12",
-        #             "ppte · G13",
-        #             "prgu · E23",
-        #             "prgu · G12",
-        #             # "prgu · G13",
-        #             "prma · G12",
-        #             "prma · E23",
-        #             # "puma · G06",
-        #             "puma · R24",
-        #             "puma · G11",
-        #             "py01 · G06",
-        #             "py01 · G11",
-        #             # "rosa · E23",
-        #             # "rosa · G12",
-        #             "unsa · G11",
-        #             "uyco · G11",
-        #             "yema · G11",
+        #         # "yema · G23",
+        #         # "uba1 · G26",
+        #         # "tatu · G32",
+        #         "tatu · G23",
+        #         "spdr · R01",
+        #         "rosa · R17",
+        #         "rosa · E13",
+        #         "rcro · E03",
+        #         "py01 · R02",
+        #         "py01 · G10",
+        #         # "puma · G32",
+        #         "puma · R02",
+        #         "prur · G27",
+        #         "prgu · E13",
+        #         "prcl · E13",
+        #         "mspp · R17",
+        #         "mspp · G27",
+        #         # "mspp · E03",
+        #         "msnv · R17",
+        #         "msnv · G27",
+        #         # "msnv · R02",
+        #         # "msmn · R02",
+        #         "msmn · E13",
+        #         "msmj · R17",
+        #         "msmj · G27",
+        #         "msjr · R17",
+        #         # "msjr · R02",
+        #         # "msjr · R01",
+        #         "msdr · R17",
+        #         "msbl · G27",
+        #         "msbl · R17",
+        #         "msbl · G27",
+        #         "itai · E13",
+        #         "guai · R17",
+        #         "guai · G27",
+        #         "guai · E13"
         #     ]
         #     }
         # ]
+        
+        # manual_runs = [
+        #     {
+        #         "year": 2026, "doy": 204, "tbeg": 15+30/60, "tend": 17 + 40/60,
+        #         "pairs": [
+        #                 "caep · R18",
+        #                 "neia · R18",
+        #                 "itai · G11",
+        #                 "rscl · E34",
+        #                 "rscl · G11",
+        #                 "scaq · R18",
+        #                 "scbl · R18",
+        #                 "stha · R18",
+                        
+        #                 "stha · G29",
+        #                 "uyvi · G29",
+        #                 "itai · R18",
+        #                 "itai · G29",
+
+        #                 "prcl · G29",
+        #                 "puma · G11",
+        #                 "eesc · G29",
+        #                 "fosa · R18",
+        #                 "guai · R18",
+        #                 "rosa · G29",
+        #                 "py01 · R18",
+        #     ]
+        #     }
+        # ]
+        
+        manual_runs = [
+            {
+                "year": 2026, "doy": 203, "tbeg": 16, "tend": 18,
+                "pairs": [
+                    # "caep · G11",
+                    # "coru · E13",
+                    # "dino · G06",
+                    "eesc · E23",
+                    "fosa · G11",
+                    "gogy · G12",
+                    "mgla · R03",
+                    "msdr · E13",
+                    "msdr · R24",
+                    # "oran · G06",
+                    "ppte · E23",
+                    "ppte · G12",
+                    "ppte · G13",
+                    "prgu · E23",
+                    "prgu · G12",
+                    # "prgu · G13",
+                    "prma · G12",
+                    "prma · E23",
+                    # "puma · G06",
+                    "puma · R24",
+                    "puma · G11",
+                    "py01 · G06",
+                    "py01 · G11",
+                    # "rosa · E23",
+                    # "rosa · G12",
+                    "unsa · G11",
+                    "uyco · G11",
+                    "yema · G11",
+            ]
+            }
+        ]
         
         # manual_runs = [
         #     {

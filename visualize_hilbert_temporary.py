@@ -515,7 +515,19 @@ TIME_MARKERS = {
 }
 
 
-def _add_time_markers(ax, year, doy, color="lime", lw=2, ls="--", zorder=10):
+# Letra do painel (A, B, C, D, ...) por (year, doy). Se a data não estiver
+# aqui, cai no valor default definido em PANEL_LETTERS_DEFAULT.
+PANEL_LETTERS_DEFAULT = "--"
+PANEL_LETTERS = {
+    (2021, 296): "A",
+    (2023, 347): "B",
+    (2026, 203): "C",
+    (2026, 204): "D",
+    # (2026, 204): "E",
+}
+
+
+def _add_time_markers(ax, year, doy, color="blue", lw=2, ls="--", zorder=10):
     """Desenha axvlines a partir de horários 'HHMM' cadastrados em TIME_MARKERS
     para o (year, doy) informado."""
     times = TIME_MARKERS.get((year, doy))
@@ -535,6 +547,33 @@ def _add_time_spans(ax, spans, color="gray", alpha=0.2, zorder=5):
         else:
             t_ini, t_fim = span
         ax.axvspan(_hhmm_to_hours(t_ini), _hhmm_to_hours(t_fim), color=color, alpha=alpha, zorder=zorder)
+
+
+def _add_panel_labels(
+    axes, labels=("1.", "2.", "3."), pos=(0.02, 0.95),
+    fontsize=18, zorder=20, ha="left", va="top",
+):
+    """Coloca um rótulo (1., 2., 3., ...) no canto de cada painel.
+
+    'axes' e 'labels' são pareados na ordem em que forem passados.
+    Usa transform=ax.transAxes, então pos=(0,0) é o canto inferior
+    esquerdo e pos=(1,1) o canto superior direito do EIXO (não da
+    figura), independente dos limites de dados (xlim/ylim).
+
+    clip_on=False garante que o rótulo não seja cortado mesmo se cair
+    perto da borda do eixo (por exemplo, se pos for ajustado depois).
+
+    Como text.usetex=True está ativo neste script, o bold é aplicado
+    via \\textbf{} dentro da própria string em vez de fontweight='bold'
+    (fontweight é ignorado pelo motor LaTeX do matplotlib).
+    """
+    for ax, label in zip(axes, labels):
+        ax.text(
+            pos[0], pos[1], r"\textbf{" + label + "}",
+            transform=ax.transAxes, ha=ha, va=va,
+            fontsize=fontsize, zorder=zorder, clip_on=False,
+            bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.85),
+        )
 
 
 
@@ -619,8 +658,10 @@ def plot_combined_panels(
     ax_dtec.tick_params(axis="both")
 
     # movavg = int(re.findall(r"\d+", dtec_col)[0]) if re.search(r"\d", dtec_col) else None
-    title = r"\textbf{" + _year_doy_para_data_str(year, doy) + f"  [doy: {doy:03d}]" + "}"
-    ax_dtec.set_title(title)
+    # title = r"\textbf{" + _year_doy_para_data_str(year, doy) + f"  [doy: {doy:03d}]" + "}"
+    panel_letter = PANEL_LETTERS.get((year, doy), PANEL_LETTERS_DEFAULT)
+    ax_dtec.set_title(r"\textbf{" + panel_letter + ")}", loc="left")
+    ax_dtec.set_title(r"\textbf{" + _year_doy_para_data_str(year, doy) + "}", loc="center")
     # ax_dtec.set_title(title)
 
     sel = df["pair"].isin(chosen_pairs)
@@ -638,6 +679,8 @@ def plot_combined_panels(
                  transform=ax_dtec.get_yaxis_transform(),  va="top", ha="right",
                  color="0.15", zorder=6)
 
+    ax_lfr.set_title("Lightning Flash Rate")
+
     try:
         # Puxamos os dados da função existente em lightning_spectrogram.py
         lfr_series = load_lightning_lfr(
@@ -645,8 +688,8 @@ def plot_combined_panels(
         )
         
         if lfr_series is not None:
-            # Converte a taxa de flashes/s para flashes/minuto
-            lfr_rate = lfr_series.values * 60.0
+            # Mantém a taxa em flashes/segundo (unidade original da série)
+            lfr_rate = lfr_series.values
             
             # =========================================================
             # Filtro Butterworth para a série de raios (LFR)
@@ -672,14 +715,14 @@ def plot_combined_panels(
             # 1. Plota os dados originais no eixo Y esquerdo (padrão)
             ax_lfr.plot(t_lfr, lfr_rate, color="black", linewidth=1.5, label="Original")
             ax_lfr.fill_between(t_lfr, 0, lfr_rate, color="grey", alpha=0.4)
-            ax_lfr.set_ylabel("LFR (flashes/min)", color="black")
+            ax_lfr.set_ylabel("LFR (flashes/s)", color="black")
             ax_lfr.tick_params(axis='y', labelcolor="black")
             ax_lfr.set_ylim(bottom=0)
             
             # # 2. Cria o segundo eixo Y à direita e plota os dados filtrados
             # ax_lfr_twin = ax_lfr.twinx()
             # ax_lfr_twin.plot(t_lfr, lfr_rate_filt, color="blue", linewidth=1.5, label="Butterworth")
-            # ax_lfr_twin.set_ylabel(r"$\Delta$ LFR (flashes/min)", color="blue")
+            # ax_lfr_twin.set_ylabel(r"$\Delta$ LFR (flashes/s)", color="blue")
             # ax_lfr_twin.tick_params(axis='y', labelcolor="blue")
             # ax_lfr_twin.set_ylim(-300, 300)
             
@@ -750,22 +793,25 @@ def plot_combined_panels(
     
     # FS_MINOR_TICK = 10 * font_scale  # fonte menor pros labels HH:MM dos minor ticks
 
-    for ax in (ax_spec,):
+    for ax in (ax_spec,ax_lfr,ax_dtec):
+            is_bottom = (ax is ax_spec)
             ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
             ax.xaxis.set_minor_locator(ticker.MultipleLocator(1/6))
-            ax.xaxis.set_minor_formatter(ticker.FuncFormatter(lambda x, pos: _hora_decimal_para_hhmm_colon(x)))
-            ax.tick_params(axis="x", which="minor", labelsize=FS_MINOR_TICK, labelbottom=True)
+            ax.xaxis.set_minor_formatter(ticker.FuncFormatter(_minor_time_formatter_20_40))
+            ax.tick_params(axis="x", which="minor", labelsize=FS_MINOR_TICK, labelbottom=is_bottom)
+            ax.tick_params(axis="x", which="major", labelbottom=is_bottom)
             
             ax.grid(True, which="both", color="gray", lw=0.6, ls=":", alpha=0.6, zorder=0)
             ax.grid(True, which="major", axis="x", color="black", lw=1.0, ls="--", alpha=1.0, zorder=0)
             
             _add_time_markers(ax, year, doy)
             # _add_time_spans(ax, spans)
-            
-            
 
-            
-            
+    # ----------------------------------------------------------------
+    # Rótulos 1. / 2. / 3. no canto superior esquerdo de cada painel
+    # ----------------------------------------------------------------
+    _add_panel_labels((ax_dtec, ax_lfr, ax_spec), labels=("i.", "ii.", "iii."))
+
     # # =======================================================
     # # ADICIONA O NOME DO SCRIPT NO CANTO INFERIOR DIREITO
     # # =======================================================
@@ -833,6 +879,16 @@ def _hora_decimal_para_hhmm_colon(t: float) -> str:
     """Converte hora decimal em string 'HH:MM' (ex.: 17 + 40/60 -> '17:40')."""
     s = _hora_decimal_para_hhmm(t)
     return f"{s[:2]}:{s[2:]}"
+
+
+def _minor_time_formatter_20_40(t: float, pos=None) -> str:
+    """Rótulo HH:MM apenas para minor ticks em :20 e :40; demais ficam vazios.
+    O tick em si (linha/traço) continua sendo desenhado a cada 10 min —
+    só o texto do rótulo some para os minutos que não forem 20 ou 40."""
+    total_min = round(t * 60) % 60
+    if total_min not in (20, 40):
+        return ""
+    return _hora_decimal_para_hhmm_colon(t)
 
 
 # ==========================================================================
@@ -1131,24 +1187,24 @@ if __name__ == "__main__":
         #     }
         # ]
         
-        # manual_runs = [
-        #     {
-        #         "year": 2026, "doy": 204, "tbeg": 16+10/60, "tend": 17 + 10/60,
-        #         "pairs": [
-        #                 "scaq · R18",
-        #                 "stha · R18",
-        #                 "stha · G29",
+        manual_runs = [
+            {
+                "year": 2026, "doy": 204, "tbeg": 16+10/60, "tend": 17 + 10/60,
+                "pairs": [
+                        "scaq · R18",
+                        "stha · R18",
+                        "stha · G29",
 
-        #                 "itai · R18",
-        #                 "itai · G29",
-        #                 "prcl · G29",
+                        "itai · R18",
+                        "itai · G29",
+                        "prcl · G29",
 
-        #                 "puma · G11",
-        #                 "fosa · R18",
-        #                 "rosa · G29",
-        #     ]
-        #     }
-        # ]
+                        "puma · G11",
+                        "fosa · R18",
+                        "rosa · G29",
+            ]
+            }
+        ]
         
         # manual_runs = [
         #     {
@@ -1169,27 +1225,27 @@ if __name__ == "__main__":
         #     }
         # ]
         
-        manual_runs = [
-            {
-                "year": 2021, "doy": 296, "tbeg": 15 +40/60, "tend": 16+40/60,
-                "pairs": [
+        # manual_runs = [
+        #     {
+        #         "year": 2021, "doy": 296, "tbeg": 15 +40/60, "tend": 16+40/60,
+        #         "pairs": [
 
-                        "coru · G11",
-                        "ilha · G29",
-                        "mspm · G12",
+        #                 "coru · G11",
+        #                 "ilha · G29",
+        #                 "mspm · G12",
                         
-                        "msaq · G25",
-                        "msbl · R13",
-                        "msdr · E02",
+        #                 "msaq · G25",
+        #                 "msbl · R13",
+        #                 "msdr · E02",
                         
-                        "msdr · G25",
-                        "mspm · G25",
-                        "mspm · R13",
+        #                 "msdr · G25",
+        #                 "mspm · G25",
+        #                 "mspm · R13",
                         
                         
-            ]
-            }
-        ]
+        #     ]
+        #     }
+        # ]
 
         LAT_RANGE = (-32.01, -17.99)    
         LON_RANGE = (-62.01, -47.99)    
@@ -1212,7 +1268,7 @@ if __name__ == "__main__":
                 kind=FIG_KIND,           
                 mode=FILTER_MODE,        
                 pairs=run_cfg["pairs"],  # <- Passando a lista de pares manualmente aqui
-                offset=0.25,              
+                offset=0.5,              
                 trh=0.2001,               
                 sample_rate_sec=15.0,
                 min_period_min=1.2,
