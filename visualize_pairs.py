@@ -261,7 +261,7 @@ def moving_average_convolve(values: pd.Series, times: pd.Series, window: str = "
 # NOTE: these defaults mirror the constants found in lightning_goes_trajec.py
 # (PARQUET_DIR, NEW_SAMPLING_RATE, ROI_LAT_*/ROI_LON_*). Adjust them if your
 # lightning parquet folder or region of interest is different.
-LIGHTNING_PARQUET_DIR = Path("data/parquet")
+LIGHTNING_PARQUET_DIR = Path("D:/bolt_pipeline/data/parquet")
 LIGHTNING_SAMPLING_RATE = 15  # matches "*_{15}s.parquet" naming
 LIGHTNING_LAT_RANGE = (-35.0, -15.0)
 LIGHTNING_LON_RANGE = (-65.0, -45.0)
@@ -301,14 +301,14 @@ def _load_lightning_flashes(
 
 def compute_flash_rate(
     lightning: pd.DataFrame,
-    bin_seconds: int = 60,
     lat_range: tuple | None = LIGHTNING_LAT_RANGE,
     lon_range: tuple | None = LIGHTNING_LON_RANGE,
 ) -> pd.Series:
     """
-    Bin lightning strikes into fixed `bin_seconds`-wide time windows
-    and return the Lightning Flash Rate (LFR), in flashes/minute, as
-    a pandas Series indexed by each bin's start timestamp.
+    Count lightning strikes per unique timestamp (the data is already
+    resampled onto a fixed LIGHTNING_SAMPLING_RATE-second grid, so no
+    additional binning is needed) and return the Lightning Flash Rate
+    (LFR), in flashes/second, as a pandas Series indexed by timestamp.
 
     Restricts to `lat_range`/`lon_range` first when given (defaults
     to the same ROI used in lightning_goes_trajec.py).
@@ -330,8 +330,8 @@ def compute_flash_rate(
         print("[warn] Lightning: 0 strikes in the ROI -- LFR will be empty and dTEC x LFR all NaN.")
         return pd.Series(dtype=float)
 
-    counts = df.set_index("time_stamp").sort_index().resample(f"{bin_seconds}s").size()
-    return counts * (60.0 / bin_seconds)  # flashes per minute
+    counts = df.groupby("time_stamp").size().sort_index()
+    return counts / LIGHTNING_SAMPLING_RATE  # flashes per second
 
 
 def _interp_to_times(series: pd.Series, times: pd.Series) -> np.ndarray:
@@ -439,7 +439,6 @@ def plot_tec_pairs_dtec_times_lfr(
     hour_max: float = 21.0,
     smooth_window: str = "10min",
     lightning_parquet_dir: Path = LIGHTNING_PARQUET_DIR,
-    lightning_bin_seconds: int = 60,
     lightning_lat_range: tuple = LIGHTNING_LAT_RANGE,
     lightning_lon_range: tuple = LIGHTNING_LON_RANGE,
 ) -> plt.Axes:
@@ -448,11 +447,11 @@ def plot_tec_pairs_dtec_times_lfr(
 
     dTEC is the same `tec_pcarrier - moving_average_convolve(...)`
     series used in plot_tec_pairs_smoothed. LFR (Lightning Flash Rate,
-    in flashes/minute) comes from the lightning-strike parquet files,
+    in flashes/second) comes from the lightning-strike parquet files,
     read the same way as lightning_goes_trajec.py, restricted to
-    `lightning_lat_range`/`lightning_lon_range` and binned every
-    `lightning_bin_seconds` seconds, then linearly interpolated onto
-    each pair's own timestamps.
+    `lightning_lat_range`/`lightning_lon_range`, counted per unique
+    timestamp (the data is already resampled onto a fixed 15s grid),
+    then linearly interpolated onto each pair's own timestamps.
 
     LFR is a regional quantity, not per-station: the same LFR curve
     is used for every pair, only dTEC differs between them.
@@ -482,14 +481,13 @@ def plot_tec_pairs_dtec_times_lfr(
 
     lightning = _load_lightning_flashes(date_str, lightning_parquet_dir)
     lfr = compute_flash_rate(
-        lightning, bin_seconds=lightning_bin_seconds,
-        lat_range=lightning_lat_range, lon_range=lightning_lon_range,
+        lightning, lat_range=lightning_lat_range, lon_range=lightning_lon_range,
     )
     if lfr.empty:
         print("[warn] No lightning data available -- the product will be all NaN.")
     else:
         print(f"[info] LFR: {len(lfr)} bin(s), {lfr.index.min()} to {lfr.index.max()}, "
-              f"max {lfr.max():.1f} flashes/min")
+              f"max {lfr.max():.3f} flashes/sec")
 
     for (station, prn), group in df.groupby(["station", "prn"]):
         group = group.sort_values("horario")
@@ -500,7 +498,7 @@ def plot_tec_pairs_dtec_times_lfr(
         ax.plot(group["horario"], product, lw=0.8, label=f"{station.upper()}-{prn}")
 
     ax.set_xlabel("Time (UTC)")
-    ax.set_ylabel("dTEC \u00d7 LFR (TECU \u00b7 flashes/min)")
+    ax.set_ylabel("dTEC \u00d7 LFR (TECU \u00b7 flashes/sec)")
     ax.set_title(
         f"dTEC \u00d7 Lightning Flash Rate — {title_date} (doy {doy:03d}), "
         f"{hour_min:g}h-{hour_max:g}h"
@@ -523,17 +521,18 @@ def plot_tec_pairs_dtec_times_lfr(
 
 
 if __name__ == "__main__":
+    date = "20260723_1600-1800"
     pairs = [
         ("fosa", "R18"),
         ("puma", "G11"),
-        ("prel", "G29"),
+        ("prcl", "G29"),
         ("itai", "G29"),
         ("itai", "R18"),
         ("stha", "G29"),
         ("stha", "R18"),
         ("scaq", "R18"),
     ]
-    plot_tec_pairs(pairs, date="20260723_1530-1700")
-    plot_tec_pairs_smoothed(pairs, date="20260723_1530-1700", smooth_window="10min")
-    plot_tec_pairs_dtec_times_lfr(pairs, date="20260723_1530-1700", smooth_window="10min")
+    plot_tec_pairs(pairs, date=date)
+    plot_tec_pairs_smoothed(pairs, date=date, smooth_window="10min")
+    plot_tec_pairs_dtec_times_lfr(pairs, date=date, smooth_window="10min")
     plt.show()
