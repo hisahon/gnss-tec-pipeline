@@ -532,6 +532,8 @@ if __name__ == "__main__":
         ("stha", "R18"),
         ("scaq", "R18"),
     ]
+    
+    
     plot_tec_pairs(pairs, date=date)
     plot_tec_pairs_smoothed(pairs, date=date, smooth_window="10min")
     plot_tec_pairs_dtec_times_lfr(pairs, date=date, smooth_window="10min")
