@@ -588,11 +588,11 @@ if __name__ == "__main__":
             radius_px=9,          # [scatter] ~0.5° a 900 px / 20°
             voronoi_downscale=3,  # [voronoi] 3 = ~4 min/dia, 2 = mais nítido e mais lento
             voronoi_max_dist_deg=None,  # [voronoi] None = tessellation completa, sem buracos
-            voronoi_borders=True,
+            voronoi_borders=False,  # sem linhas entre células
             trh=0.15,
             width_px=900,
             height_px=1000,
-            out_path="/home/hisashi/database/ionosphere/dtecmaps/meu_video.mp4",
+            out_path="/home/hisashi/database/ionosphere/dtecmaps/meu_video2.mp4",
             fps=24,
             crf=18,
         )
