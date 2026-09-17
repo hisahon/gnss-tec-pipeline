@@ -262,6 +262,7 @@ def moving_average_convolve(values: pd.Series, times: pd.Series, window: str = "
 # (PARQUET_DIR, NEW_SAMPLING_RATE, ROI_LAT_*/ROI_LON_*). Adjust them if your
 # lightning parquet folder or region of interest is different.
 LIGHTNING_PARQUET_DIR = Path("D:/bolt_pipeline/data/parquet")
+LIGHTNING_PARQUET_DIR = Path("/home/hisashi/database/bolts/parquet")
 LIGHTNING_SAMPLING_RATE = 15  # matches "*_{15}s.parquet" naming
 LIGHTNING_LAT_RANGE = (-35.0, -15.0)
 LIGHTNING_LON_RANGE = (-65.0, -45.0)
