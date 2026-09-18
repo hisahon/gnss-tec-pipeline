@@ -81,6 +81,11 @@ def dtec_keogram_figs_dir() -> Path:
     folder_out.mkdir(parents=True, exist_ok=True)
     return folder_out
 
+def dtec_maps_figs_dir(year: int, doy: int) -> Path:
+    folder_out = DB_ROOT / "ionosphere" / "dtec_maps" / f"{year}" / f"{doy:03d}"
+    folder_out.mkdir(parents=True, exist_ok=True)
+    return folder_out
+
 def tec_error_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "ionosphere" / "tec_error" / f"{year}" / f"{doy:03d}"
 
