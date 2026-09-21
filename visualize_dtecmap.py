@@ -55,6 +55,17 @@ Density-based alpha (voronoi only)
                    sample frames; the value is printed so you can pin it and
                    keep several days visually comparable).
 
+Deleting sparse regions (voronoi only)
+--------------------------------------
+* min_density    : pixels where the local IPP density (same estimate as the
+                   alpha fade, points/deg²) is below this value are removed
+                   from the map altogether — background shows through.  Works
+                   alone (hard cut) or with alpha_fade, in which case the alpha
+                   ramp starts at min_density (alpha=0) and reaches 1 at
+                   alpha_ref, so the cut has no visible edge.  The density
+                   percentiles and the % of the domain removed are printed at
+                   start to help choose the value.
+
 Both modes share the same static background (rendered once by
 matplotlib, ~0.3 s) and the same ffmpeg pipe (no PNG files on disk).
 
@@ -279,9 +290,15 @@ def _density_grid(lon, lat, lat_range, lon_range, wd, hd, sigma_deg):
     return num / np.maximum(den, 1e-6) / cell_area
 
 
-def _alpha_from_density(rho, ref, alpha_min=0.0):
-    """Opacity in [alpha_min, 1]: linear in density, saturating at `ref`."""
-    a = np.clip(rho / ref, 0.0, 1.0)
+def _alpha_from_density(rho, ref, alpha_min=0.0, cut=0.0):
+    """
+    Opacity in [alpha_min, 1]: linear in density between `cut` (a = 0) and
+    `ref` (a = 1).  If ref <= cut the ramp degenerates to a step at `ref`.
+    """
+    if ref <= cut:
+        a = (rho >= ref).astype(np.float32)
+    else:
+        a = np.clip((rho - cut) / (ref - cut), 0.0, 1.0)
     return (alpha_min + (1.0 - alpha_min) * a).astype(np.float32)
 
 
@@ -373,7 +390,8 @@ def _render_frame_voronoi(bg, bbox, lat_range, lon_range,
                           draw_borders=True, border_bgr=(70, 70, 70),
                           smooth_fwhm_deg=None,
                           alpha_fade=False, alpha_ref=None,
-                          alpha_sigma_deg=1.0, alpha_min=0.0):
+                          alpha_sigma_deg=1.0, alpha_min=0.0,
+                          min_density=None):
     """
     Copy bg, fill the plot area with the Voronoi tessellation of the
     IPPs, draw cell borders (optional), stamp the title.
@@ -381,6 +399,8 @@ def _render_frame_voronoi(bg, bbox, lat_range, lon_range,
     With alpha_fade=True the colours are alpha-blended over the background
     with an opacity that follows the local IPP density (see
     _density_grid / _alpha_from_density); `alpha_ref` must then be a number.
+    With min_density set, pixels whose local density is below it are removed
+    (not drawn) — with or without alpha_fade.
     """
     img    = bg.copy()
     x0, y0, x1, y1 = bbox
@@ -400,12 +420,16 @@ def _render_frame_voronoi(bg, bbox, lat_range, lon_range,
     valid = np.isfinite(vmap)
 
     alpha = None
-    if alpha_fade and valid.any():
+    if (alpha_fade or min_density) and valid.any():
         wd = max(1, pw // downscale)
         hd = max(1, ph // downscale)
-        rho = _density_grid(lon, lat, lat_range, lon_range, wd, hd, alpha_sigma_deg)
-        a_d = _alpha_from_density(rho, alpha_ref, alpha_min)
-        alpha = cv2.resize(a_d, (pw, ph), interpolation=cv2.INTER_LINEAR)
+        rho_d = _density_grid(lon, lat, lat_range, lon_range, wd, hd, alpha_sigma_deg)
+        rho = cv2.resize(rho_d, (pw, ph), interpolation=cv2.INTER_LINEAR)
+        if min_density:
+            valid &= rho >= min_density            # delete sparse regions
+        if alpha_fade:
+            alpha = _alpha_from_density(rho, alpha_ref, alpha_min,
+                                        cut=min_density or 0.0)
 
     def _paint(mask, bgr):
         """Write `bgr` (uint8, shape (N,3) or (3,)) into sub[mask], with alpha if enabled."""
@@ -556,6 +580,7 @@ def main(year, doy,
          alpha_ref=None,
          alpha_sigma_deg=1.0,
          alpha_min=0.0,
+         min_density=None,
          prn_col="prn",
          collapse_pairs=True,
          trh=0.15,
@@ -608,6 +633,13 @@ def main(year, doy,
                     reasonable range for this network.
     alpha_min     : opacity floor in [0, 1) — 0 lets empty regions vanish
                     completely, e.g. 0.15 keeps a faint ghost of them.
+    min_density   : [voronoi] IPPs/deg² below which the region is deleted
+                    from the map (hard cut; None = keep everything).  Uses
+                    the same density estimate (and alpha_sigma_deg) as
+                    alpha_fade.  Combined with alpha_fade the fade starts at
+                    this value, so there is no visible edge.  At start the
+                    density percentiles and the % of the domain removed are
+                    printed — pick the value from those.
     prn_col       : parquet column with the satellite PRN, used (with the
                     station) to identify receiver-PRN pairs.  None disables
                     pair identification.
@@ -637,17 +669,25 @@ def main(year, doy,
         print("[dtecmap] smoothing is on → cell borders disabled.")
         voronoi_borders = False
 
-    if alpha_fade and mode != "voronoi":
-        print("[dtecmap] [warn] alpha_fade only applies to mode='voronoi'; "
-              "ignored.", file=sys.stderr)
-        alpha_fade = False
-    if alpha_fade:
+    if (alpha_fade or min_density) and mode != "voronoi":
+        print("[dtecmap] [warn] alpha_fade / min_density only apply to "
+              "mode='voronoi'; ignored.", file=sys.stderr)
+        alpha_fade, min_density = False, None
+    if min_density is not None and min_density <= 0:
+        min_density = None
+    if alpha_fade or min_density:
         if not (0.0 <= alpha_min < 1.0):
             raise ValueError(f"alpha_min must be in [0, 1), got {alpha_min}")
         if alpha_sigma_deg <= 0:
             raise ValueError(f"alpha_sigma_deg must be > 0, got {alpha_sigma_deg}")
         if alpha_ref is not None and alpha_ref <= 0:
             raise ValueError(f"alpha_ref must be > 0 (or None), got {alpha_ref}")
+
+    if mode == "voronoi":
+        print(f"[dtecmap] voronoi settings → smooth_fwhm_deg={smooth_fwhm_deg}  "
+              f"alpha_fade={alpha_fade}  min_density={min_density}  "
+              f"max_dist={voronoi_max_dist_deg}  borders={voronoi_borders}  "
+              f"collapse_pairs={collapse_pairs}")
 
     movavg = re.findall(r"\d+", dtec_col)
     movavg_str = movavg[0] if movavg else "?"
@@ -664,11 +704,17 @@ def main(year, doy,
                 tag += f"_sm{smooth_fwhm_deg:g}deg"
             if alpha_fade:
                 tag += f"_alpha{alpha_sigma_deg:g}"
+            if min_density:
+                tag += f"_mind{min_density:g}"
         out_path = Path(dtec_map_figs_dir()) / f"dtecmap_{tag}.mp4"
     out_path = Path(out_path)
 
     if out_path.exists() and not overwrite:
-        print(f"[dtecmap] Already exists, skipping: {out_path}")
+        print(f"[dtecmap] [warn] OUTPUT ALREADY EXISTS — NOTHING WAS RE-RENDERED.\n"
+              f"          {out_path}\n"
+              f"          The video you will see is the OLD one. "
+              f"Pass overwrite=True (or --overwrite) to regenerate it.",
+              file=sys.stderr)
         return out_path
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -720,8 +766,9 @@ def main(year, doy,
                 pid_k[in_domain], lon_k, lat_k, dtec_k)
         return lon_k, lat_k, dtec_k
 
-    # Reference density for the alpha fade (auto = percentile over sample frames)
-    if alpha_fade and alpha_ref is None:
+    # Density statistics over sample frames: used for the auto alpha_ref and
+    # to help choose min_density (percentiles + % of the domain it would remove)
+    if alpha_fade or min_density:
         pw_, ph_ = bbox[2] - bbox[0], bbox[3] - bbox[1]
         wd_, hd_ = max(1, pw_ // voronoi_downscale), max(1, ph_ // voronoi_downscale)
         pooled = []
@@ -731,19 +778,27 @@ def main(year, doy,
                 pooled.append(_density_grid(lo_, la_, lat_range, lon_range,
                                             wd_, hd_, alpha_sigma_deg).ravel())
         if not pooled:
-            print("[dtecmap] [warn] no IPPs in sample frames — alpha_fade disabled.",
-                  file=sys.stderr)
-            alpha_fade = False
+            print("[dtecmap] [warn] no IPPs in sample frames — alpha_fade / "
+                  "min_density disabled.", file=sys.stderr)
+            alpha_fade, min_density = False, None
         else:
             pooled = np.concatenate(pooled)
             q10, q50, q75, q90 = np.percentile(pooled, [10, 50, _ALPHA_AUTO_PCT, 90])
-            alpha_ref = float(q75)
-            print(f"[dtecmap] alpha: IPP density [pts/deg²] P10={q10:.2f}  P50={q50:.2f}  "
+            print(f"[dtecmap] density [pts/deg²] P10={q10:.2f}  P50={q50:.2f}  "
                   f"P{_ALPHA_AUTO_PCT}={q75:.2f}  P90={q90:.2f}")
-            print(f"[dtecmap] alpha: auto alpha_ref = {alpha_ref:.2f} pts/deg² "
-                  f"(pass --alpha-ref {alpha_ref:.2f} to pin it)")
-    elif alpha_fade:
-        print(f"[dtecmap] alpha: alpha_ref = {alpha_ref:g} pts/deg² (user-set)")
+            if alpha_fade and alpha_ref is None:
+                alpha_ref = float(q75)
+                print(f"[dtecmap] alpha: auto alpha_ref = {alpha_ref:.2f} pts/deg² "
+                      f"(pass --alpha-ref {alpha_ref:.2f} to pin it)")
+            elif alpha_fade:
+                print(f"[dtecmap] alpha: alpha_ref = {alpha_ref:g} pts/deg² (user-set)")
+            if min_density:
+                frac = float((pooled < min_density).mean()) * 100
+                print(f"[dtecmap] min_density = {min_density:g} pts/deg² deletes "
+                      f"~{frac:.0f}% of the domain (mean over sample frames)")
+                if alpha_fade and alpha_ref <= min_density:
+                    print("[dtecmap] [note] alpha_ref <= min_density → hard cut, "
+                          "no alpha ramp.", file=sys.stderr)
 
     # ffmpeg pipe
     cmd = [
@@ -790,7 +845,8 @@ def main(year, doy,
                                           alpha_fade=alpha_fade,
                                           alpha_ref=alpha_ref,
                                           alpha_sigma_deg=alpha_sigma_deg,
-                                          alpha_min=alpha_min)
+                                          alpha_min=alpha_min,
+                                          min_density=min_density)
         ff.stdin.write(frame.tobytes())
 
         if (k + 1) % 500 == 0 or (k + 1) == n_frames:
@@ -854,6 +910,9 @@ def _parse():
                    help="Kernel bandwidth (deg) of the density estimate (default 1.0)")
     p.add_argument("--alpha-min", type=float, default=0.0, metavar="A",
                    help="Opacity floor in [0,1) (default 0 = fully transparent)")
+    p.add_argument("--min-density", type=float, default=None, metavar="PTS_PER_DEG2",
+                   help="[voronoi] Delete regions whose local IPP density is below "
+                        "this value (pts/deg^2); see the percentiles printed at start")
     p.add_argument("--prn-col", default="prn",
                    help="Parquet column with the satellite PRN (default 'prn')")
     p.add_argument("--no-collapse", action="store_true",
@@ -893,18 +952,20 @@ if __name__ == "__main__":
             voronoi_max_dist_deg=None,  # [voronoi] None = tessellation completa, sem buracos
             voronoi_borders=False,  # sem linhas entre células
             smooth_fwhm_deg=0.5,    # [voronoi] FWHM da gaussiana 2D (graus); None = sem suavização
-            alpha_fade=True,        # [voronoi] esmaece regiões com poucos IPPs (alfa ∝ densidade)
+            alpha_fade=False,        # [voronoi] esmaece regiões com poucos IPPs (alfa ∝ densidade)
             alpha_ref=None,         # IPPs/deg² com opacidade total; None = automático (valor é impresso)
             alpha_sigma_deg=1.0,    # largura (graus) do kernel de densidade
             alpha_min=0.0,          # piso de opacidade (0 = some por completo)
+            min_density=None,       # IPPs/deg² abaixo do qual a região é DELETADA (None = não deleta)
             prn_col="prn",          # coluna do PRN no parquet (ajuste ao nome real)
             collapse_pairs=True,    # funde IPPs do mesmo par receptor-PRN dentro do frame
             trh=0.15,
-            width_px=900,
-            height_px=1000,
-            out_path="/home/hisashi/database/ionosphere/dtecmaps/meu_video7.mp4",
+            width_px=500,
+            height_px=700,
+            out_path="/home/hisashi/database/ionosphere/dtecmaps/meu_video14.mp4",
             fps=24,
             crf=18,
+            overwrite=True,         # out_path é fixo: sem isso, rodar de novo reaproveita o vídeo ANTIGO
         )
 
     else:
@@ -927,6 +988,7 @@ if __name__ == "__main__":
             alpha_ref=args.alpha_ref,
             alpha_sigma_deg=args.alpha_sigma,
             alpha_min=args.alpha_min,
+            min_density=args.min_density,
             prn_col=args.prn_col,
             collapse_pairs=not args.no_collapse,
             trh=args.trh,
