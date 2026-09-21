@@ -28,6 +28,33 @@ mode="voronoi" : each IPP "owns" every pixel closer to it than to any
                  begin with; the cap exists only to guard against a
                  lone, far-flung IPP dominating a large empty region.
 
+Smoothing / de-duplication (new)
+--------------------------------
+* collapse_pairs : within each frame, IPPs from the same receiver-PRN pair
+                   are merged into a single point (mean lon/lat/dTEC).  With
+                   dt larger than the native sampling (e.g. dt=30 s on 15 s
+                   data) the same pair otherwise shows up twice, producing
+                   tiny redundant cells.  Needs the PRN column (`prn_col`).
+* smooth_fwhm_deg: [voronoi only] 2-D Gaussian filter applied to the
+                   tessellated map (NaN-aware, so `max_dist_deg` masks are
+                   preserved).  Follows Azeem et al. (2018, GRL 45, 8014):
+                   nearest-neighbour grid → 2-D Gaussian.  Value is the FWHM
+                   in degrees (sigma = FWHM / 2.3548).  Cell borders are
+                   disabled when smoothing is on.
+
+Density-based alpha (voronoi only)
+----------------------------------
+* alpha_fade     : fade the colours towards the background where the local IPP
+                   density is low, so isolated IPPs with strong signals no
+                   longer dominate large empty areas.  alpha = clip(rho/ref,
+                   alpha_min, 1), where rho is a Gaussian-kernel density of
+                   the IPPs (points/deg², bandwidth `alpha_sigma_deg`, edge-
+                   corrected) — the smooth equivalent of "alpha proportional
+                   to 1 / Voronoi-cell area".  `alpha_ref` = density that
+                   gets full opacity; None → auto (75th percentile over
+                   sample frames; the value is printed so you can pin it and
+                   keep several days visually comparable).
+
 Both modes share the same static background (rendered once by
 matplotlib, ~0.3 s) and the same ffmpeg pipe (no PNG files on disk).
 
@@ -46,7 +73,8 @@ Usage (IDE)
 Usage (CLI)
 -----------
     python visualize_dtecmap.py --year 2024 --doy 333 --mode voronoi \
-        --dtec-col dtec_15min --trh 0.15 \
+        --dtec-col dtec_15min --trh 0.15 --dt 30 \
+        --smooth-fwhm 0.5 --prn-col prn --alpha-fade \
         --lat-range -43 -10 --lon-range -60 -40 \
         --fps 24 --crf 18
 
@@ -57,6 +85,7 @@ import argparse
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -66,6 +95,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as mcm
 import numpy as np
 import pandas as pd
+from scipy.ndimage import gaussian_filter
 from scipy.spatial import cKDTree
 
 from shared.config import dtec_ipp_dir, dtec_keogram_figs_dir
@@ -207,8 +237,60 @@ def _render_frame(bg, bbox, lat_range, lon_range,
 # NaN or crash; the tie is broken by internal tree ordering, which is
 # visually irrelevant since both points sit at the same location anyway).
 
+_FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))   # 1/2.3548
+
+
+def _gauss_nan(a, sigma_yx):
+    """
+    2-D Gaussian filter that ignores NaN (normalised convolution).
+
+    Outside the domain and at NaN pixels the weight is zero, so values near
+    an edge or a masked region are averages of the valid neighbours only
+    (no darkening towards zero).  The original NaN mask is restored on
+    output, so the filter never grows or shrinks the valid area.
+    """
+    m   = np.isfinite(a)
+    num = gaussian_filter(np.where(m, a, 0.0).astype(np.float32),
+                          sigma_yx, mode="constant", cval=0.0)
+    den = gaussian_filter(m.astype(np.float32),
+                          sigma_yx, mode="constant", cval=0.0)
+    return np.where(m, num / np.maximum(den, 1e-6), np.nan).astype(np.float32)
+
+
+def _density_grid(lon, lat, lat_range, lon_range, wd, hd, sigma_deg):
+    """
+    Local IPP density (points / deg²) on a (hd, wd) grid: Gaussian kernel
+    density estimate with bandwidth `sigma_deg`.
+
+    Edge-corrected: the point counts are divided by the kernel mass that
+    falls inside the domain, so a uniform network gives a uniform density
+    map right up to the borders (no artificial fade at the edges).
+    """
+    dlon = lon_range[1] - lon_range[0]
+    dlat = lat_range[1] - lat_range[0]
+    ix = np.clip(((lon - lon_range[0]) / dlon * wd).astype(np.int64), 0, wd - 1)
+    iy = np.clip(((lat_range[1] - lat) / dlat * hd).astype(np.int64), 0, hd - 1)
+    cnt = np.bincount(iy * wd + ix, minlength=wd * hd).reshape(hd, wd).astype(np.float32)
+
+    sig = (sigma_deg / dlat * hd, sigma_deg / dlon * wd)          # (rows, cols)
+    num = gaussian_filter(cnt, sig, mode="constant", cval=0.0)
+    den = gaussian_filter(np.ones_like(cnt), sig, mode="constant", cval=0.0)
+    cell_area = (dlon / wd) * (dlat / hd)                          # deg² per cell
+    return num / np.maximum(den, 1e-6) / cell_area
+
+
+def _alpha_from_density(rho, ref, alpha_min=0.0):
+    """Opacity in [alpha_min, 1]: linear in density, saturating at `ref`."""
+    a = np.clip(rho / ref, 0.0, 1.0)
+    return (alpha_min + (1.0 - alpha_min) * a).astype(np.float32)
+
+
+_ALPHA_AUTO_PCT = 75      # percentile of pooled density used when alpha_ref=None
+
+
 def _voronoi_grid(lon, lat, v, lat_range, lon_range, w_px, h_px,
-                  downscale=3, max_dist_deg=None, need_labels=False):
+                  downscale=3, max_dist_deg=None, need_labels=False,
+                  smooth_fwhm_deg=None):
     """
     Nearest-IPP assignment on a (h_px, w_px) grid.
 
@@ -228,6 +310,13 @@ def _voronoi_grid(lon, lat, v, lat_range, lon_range, w_px, h_px,
         pixels farther than max_dist_deg from every IPP are left as NaN —
         use this only to cap a single very isolated IPP from dominating
         an otherwise-empty region, not as a general density control.
+
+    smooth_fwhm_deg : if set, a 2-D Gaussian (FWHM in degrees) is applied
+        to the tessellated map before upsampling (Azeem et al., 2018:
+        nearest-neighbour grid → 2-D Gaussian filter).  The upsampling then
+        uses bilinear interpolation instead of nearest, since the field is
+        smooth.  Labels (cell borders) are no longer meaningful in this
+        case and are not returned.
 
     Returns
     -------
@@ -259,7 +348,17 @@ def _voronoi_grid(lon, lat, v, lat_range, lon_range, w_px, h_px,
         ok = dist <= max_dist_deg
 
     vmap_d = np.where(ok, v[idx], np.nan).astype(np.float32).reshape(hd, wd)
-    vmap = cv2.resize(vmap_d, (w_px, h_px), interpolation=cv2.INTER_NEAREST)
+
+    interp = cv2.INTER_NEAREST
+    if smooth_fwhm_deg:
+        sigma = smooth_fwhm_deg * _FWHM_TO_SIGMA                    # degrees
+        sx = sigma / (lon_range[1] - lon_range[0]) * wd             # cells
+        sy = sigma / (lat_range[1] - lat_range[0]) * hd
+        vmap_d = _gauss_nan(vmap_d, (sy, sx))
+        interp = cv2.INTER_LINEAR
+        need_labels = False
+
+    vmap = cv2.resize(vmap_d, (w_px, h_px), interpolation=interp)
 
     labels = None
     if need_labels:
@@ -271,10 +370,17 @@ def _voronoi_grid(lon, lat, v, lat_range, lon_range, w_px, h_px,
 def _render_frame_voronoi(bg, bbox, lat_range, lon_range,
                           lon, lat, v, title_str,
                           trh, downscale=3, max_dist_deg=None,
-                          draw_borders=True, border_bgr=(70, 70, 70)):
+                          draw_borders=True, border_bgr=(70, 70, 70),
+                          smooth_fwhm_deg=None,
+                          alpha_fade=False, alpha_ref=None,
+                          alpha_sigma_deg=1.0, alpha_min=0.0):
     """
     Copy bg, fill the plot area with the Voronoi tessellation of the
     IPPs, draw cell borders (optional), stamp the title.
+
+    With alpha_fade=True the colours are alpha-blended over the background
+    with an opacity that follows the local IPP density (see
+    _density_grid / _alpha_from_density); `alpha_ref` must then be a number.
     """
     img    = bg.copy()
     x0, y0, x1, y1 = bbox
@@ -287,19 +393,38 @@ def _render_frame_voronoi(bg, bbox, lat_range, lon_range,
 
     vmap, labels = _voronoi_grid(lon, lat, v, lat_range, lon_range, pw, ph,
                                  downscale=downscale, max_dist_deg=max_dist_deg,
-                                 need_labels=draw_borders)
+                                 need_labels=draw_borders,
+                                 smooth_fwhm_deg=smooth_fwhm_deg)
 
     sub = img[y0:y1, x0:x1]           # view into img — writes propagate back
     valid = np.isfinite(vmap)
+
+    alpha = None
+    if alpha_fade and valid.any():
+        wd = max(1, pw // downscale)
+        hd = max(1, ph // downscale)
+        rho = _density_grid(lon, lat, lat_range, lon_range, wd, hd, alpha_sigma_deg)
+        a_d = _alpha_from_density(rho, alpha_ref, alpha_min)
+        alpha = cv2.resize(a_d, (pw, ph), interpolation=cv2.INTER_LINEAR)
+
+    def _paint(mask, bgr):
+        """Write `bgr` (uint8, shape (N,3) or (3,)) into sub[mask], with alpha if enabled."""
+        if alpha is None:
+            sub[mask] = bgr
+        else:
+            a = alpha[mask][:, None]
+            sub[mask] = (a * np.asarray(bgr, np.float32)
+                         + (1.0 - a) * sub[mask].astype(np.float32)).astype(np.uint8)
+
     if valid.any():
-        sub[valid] = _seismic_r_bgr(vmap[valid], -trh, trh)
+        _paint(valid, _seismic_r_bgr(vmap[valid], -trh, trh))
 
     if draw_borders and labels is not None:
         borders = np.zeros(labels.shape, dtype=bool)
         borders[:, 1:] |= labels[:, 1:] != labels[:, :-1]
         borders[1:, :] |= labels[1:, :] != labels[:-1, :]
         borders &= valid
-        sub[borders] = border_bgr
+        _paint(borders, border_bgr)
 
     img[y0:y1, x0:x1] = sub
     return img
@@ -314,21 +439,47 @@ _LAT_COL  = "lts"
 _LON_COL  = "lns"
 
 
-def _read_station(path, dtec_col):
-    """Return DataFrame with columns [horario, lts, lns, <dtec_col>]."""
-    cols = [_LAT_COL, _LON_COL, dtec_col]
+def _read_cols(path, cols):
+    """Read `cols` from a parquet, making sure `horario` is a column."""
     df = pd.read_parquet(path, columns=cols)
     if _TIME_COL not in df.columns:
         df = df.reset_index()
     if _TIME_COL not in df.columns:
         df = pd.read_parquet(path).reset_index()[[_TIME_COL] + cols]
-    return df.dropna(subset=[_LAT_COL, _LON_COL, dtec_col])
+    return df
 
 
-def _load_day(year, doy, dtec_col):
+def _read_station(path, dtec_col, prn_col=None, station_id=0):
+    """
+    Return DataFrame with columns
+    [horario, lts, lns, <dtec_col>, station_id, (<prn_col>)].
+
+    If `prn_col` is not present in this file, the frame is returned without
+    it (those rows are simply never merged by the pair-collapse step).
+    """
+    cols = [_LAT_COL, _LON_COL, dtec_col]
+    df = None
+    if prn_col:
+        try:
+            df = _read_cols(path, cols + [prn_col])
+        except Exception:
+            df = None            # PRN column missing → fall back below
+    if df is None:
+        df = _read_cols(path, cols)
+    df = df.dropna(subset=cols)
+    df["station_id"] = np.int32(station_id)
+    return df
+
+
+def _load_day(year, doy, dtec_col, prn_col=None):
     """
     Load all station parquets for a given day into one DataFrame,
     sorted by time.  Returns None if no files are found.
+
+    If `prn_col` is given and found, a `pair_id` column (int64) identifies
+    each receiver-PRN pair; rows with unknown PRN get a unique negative id
+    so they are never merged with anything.  The `pair_id` column is simply
+    absent when no PRN information is available.
     """
     folder = Path(dtec_ipp_dir(year, doy))
     files  = sorted(folder.glob(f"*_dtecIPP_{year}{doy:03d}.parquet"))
@@ -341,7 +492,7 @@ def _load_day(year, doy, dtec_col):
     frames = []
     for i, p in enumerate(files, 1):
         try:
-            frames.append(_read_station(p, dtec_col))
+            frames.append(_read_station(p, dtec_col, prn_col, station_id=i))
         except Exception as exc:
             print(f"  [warn] {p.name}: {exc}", file=sys.stderr)
         if i % 50 == 0 or i == len(files):
@@ -350,9 +501,39 @@ def _load_day(year, doy, dtec_col):
         return None
     df = pd.concat(frames, ignore_index=True)
     df[_TIME_COL] = pd.to_datetime(df[_TIME_COL])
+
+    # Receiver-PRN pair id
+    if prn_col and prn_col in df.columns and df[prn_col].notna().any():
+        codes, uniques = pd.factorize(df[prn_col])          # -1 for NaN
+        pid = df["station_id"].to_numpy(np.int64) * (len(uniques) + 1) + codes
+        bad = codes < 0
+        if bad.any():
+            pid[bad] = -1 - np.arange(bad.sum(), dtype=np.int64)
+        df["pair_id"] = pid
+    elif prn_col:
+        print(f"[dtecmap] [warn] PRN column '{prn_col}' not found — "
+              f"pair collapse disabled.", file=sys.stderr)
+
+    df = df.drop(columns=["station_id"] + ([prn_col] if prn_col in df.columns else []))
     df.sort_values(_TIME_COL, inplace=True)
     df.reset_index(drop=True, inplace=True)
     return df
+
+
+def _collapse_pairs(pid, lon, lat, v):
+    """
+    Merge IPPs that belong to the same receiver-PRN pair into one point
+    (arithmetic mean of lon, lat and dTEC).  Returns arrays of length
+    = number of distinct pairs present.  Order is by pair id (irrelevant
+    for the renderers, which sort/lookup on their own).
+    """
+    if len(pid) == 0:
+        return lon, lat, v
+    _, inv = np.unique(pid, return_inverse=True)
+    n = np.bincount(inv).astype(np.float64)
+    return (np.bincount(inv, weights=lon) / n,
+            np.bincount(inv, weights=lat) / n,
+            (np.bincount(inv, weights=v.astype(np.float64)) / n).astype(np.float32))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -370,6 +551,13 @@ def main(year, doy,
          voronoi_downscale=3,
          voronoi_max_dist_deg=None,
          voronoi_borders=False,
+         smooth_fwhm_deg=None,
+         alpha_fade=False,
+         alpha_ref=None,
+         alpha_sigma_deg=1.0,
+         alpha_min=0.0,
+         prn_col="prn",
+         collapse_pairs=True,
          trh=0.15,
          width_px=900,
          height_px=1000,
@@ -401,6 +589,32 @@ def main(year, doy,
     voronoi_max_dist_deg : [voronoi] cap a cell's reach; None (default)
                     = uncapped true Voronoi (no gaps, see _voronoi_grid).
     voronoi_borders : [voronoi] draw a thin line between cells.
+                    Ignored (forced off) when smooth_fwhm_deg is set.
+    smooth_fwhm_deg : [voronoi] FWHM (degrees) of a 2-D Gaussian applied to
+                    the tessellated map; None = no smoothing.  Following
+                    Azeem et al. (2018): sigma = FWHM / 2.3548.  Try
+                    0.3–1.0° for a sparse network like this one.
+    alpha_fade    : [voronoi] fade colours towards the background where the
+                    local IPP density is low (opacity ∝ density, see module
+                    docstring).  Hides strong signals from isolated IPPs.
+    alpha_ref     : IPP density (points/deg²) that gets full opacity; lower
+                    density → proportionally more transparent.  None = auto
+                    (75th percentile of the density over ~24 sample frames;
+                    printed at start — pass that number back in to keep
+                    different days/runs comparable).
+    alpha_sigma_deg : bandwidth (deg) of the Gaussian kernel used to estimate
+                    the local density.  Larger = smoother, more regional
+                    alpha; smaller = follows individual gaps.  0.7–1.5 is a
+                    reasonable range for this network.
+    alpha_min     : opacity floor in [0, 1) — 0 lets empty regions vanish
+                    completely, e.g. 0.15 keeps a faint ghost of them.
+    prn_col       : parquet column with the satellite PRN, used (with the
+                    station) to identify receiver-PRN pairs.  None disables
+                    pair identification.
+    collapse_pairs: merge IPPs of the same receiver-PRN pair that fall in the
+                    same frame (mean lon/lat/dTEC).  Relevant when dt_sec is
+                    larger than the native sampling (e.g. dt=30 s on 15 s
+                    data).  Needs prn_col; skipped with a warning otherwise.
     trh           : ±dTEC colour saturation threshold (TECU)
     width_px      : output frame width
     height_px     : output frame height
@@ -413,6 +627,28 @@ def main(year, doy,
     if mode not in ("scatter", "voronoi"):
         raise ValueError(f"mode must be 'scatter' or 'voronoi', got {mode!r}")
 
+    if smooth_fwhm_deg is not None and smooth_fwhm_deg <= 0:
+        smooth_fwhm_deg = None
+    if smooth_fwhm_deg and mode != "voronoi":
+        print("[dtecmap] [warn] smooth_fwhm_deg only applies to mode='voronoi'; "
+              "ignored.", file=sys.stderr)
+        smooth_fwhm_deg = None
+    if smooth_fwhm_deg and voronoi_borders:
+        print("[dtecmap] smoothing is on → cell borders disabled.")
+        voronoi_borders = False
+
+    if alpha_fade and mode != "voronoi":
+        print("[dtecmap] [warn] alpha_fade only applies to mode='voronoi'; "
+              "ignored.", file=sys.stderr)
+        alpha_fade = False
+    if alpha_fade:
+        if not (0.0 <= alpha_min < 1.0):
+            raise ValueError(f"alpha_min must be in [0, 1), got {alpha_min}")
+        if alpha_sigma_deg <= 0:
+            raise ValueError(f"alpha_sigma_deg must be > 0, got {alpha_sigma_deg}")
+        if alpha_ref is not None and alpha_ref <= 0:
+            raise ValueError(f"alpha_ref must be > 0 (or None), got {alpha_ref}")
+
     movavg = re.findall(r"\d+", dtec_col)
     movavg_str = movavg[0] if movavg else "?"
 
@@ -424,6 +660,10 @@ def main(year, doy,
         else:
             tag = (f"{year}{doy:03d}_voronoi_dt{dt_sec}s"
                    f"_ds{voronoi_downscale}_trh{trh}")
+            if smooth_fwhm_deg:
+                tag += f"_sm{smooth_fwhm_deg:g}deg"
+            if alpha_fade:
+                tag += f"_alpha{alpha_sigma_deg:g}"
         out_path = Path(dtec_map_figs_dir()) / f"dtecmap_{tag}.mp4"
     out_path = Path(out_path)
 
@@ -434,15 +674,23 @@ def main(year, doy,
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Load data
-    df = _load_day(year, doy, dtec_col)
+    df = _load_day(year, doy, dtec_col,
+                   prn_col=prn_col if collapse_pairs else None)
     if df is None:
         return None
 
-    day0   = pd.Timestamp(year=year, month=1, day=1) + pd.Timedelta(days=doy - 1)
+    # %Y%j parses year + day-of-year directly (no Timedelta arithmetic, which
+    # raises a NumPy 'generic unit' DeprecationWarning on some pandas/numpy combos)
+    day0   = pd.Timestamp(datetime.strptime(f"{int(year)}{int(doy):03d}", "%Y%j"))
     t_sec  = (df[_TIME_COL] - day0).dt.total_seconds().to_numpy()
     lat_v  = df[_LAT_COL].to_numpy()
     lon_v  = df[_LON_COL].to_numpy()
     dtec_v = df[dtec_col].to_numpy(dtype=np.float32)
+    pair_v = df["pair_id"].to_numpy() if "pair_id" in df.columns else None
+    do_collapse = collapse_pairs and pair_v is not None
+    if collapse_pairs and pair_v is None:
+        print("[dtecmap] [warn] collapse_pairs requested but no PRN info — "
+              "duplicates within a frame will NOT be merged.", file=sys.stderr)
 
     t0_s = t_range_h[0] * 3600
     t1_s = t_range_h[1] * 3600
@@ -455,6 +703,47 @@ def main(year, doy,
     bg, bbox = _make_background(lat_range, lon_range,
                                 width_px, height_px, trh, dpi=dpi)
     print(f"  canvas {width_px}×{height_px} px, plot area {bbox}")
+
+    def _frame_points(k):
+        """(lon, lat, dtec) of the IPPs in frame k: time bin → domain → pair collapse."""
+        t_bin_s = t0_s + k * dt_sec
+        mask = (t_sec >= t_bin_s) & (t_sec < t_bin_s + dt_sec)
+        lon_k, lat_k, dtec_k = lon_v[mask], lat_v[mask], dtec_v[mask]
+        pid_k = pair_v[mask] if do_collapse else None
+        in_domain = (
+            (lat_k >= lat_range[0]) & (lat_k <= lat_range[1]) &
+            (lon_k >= lon_range[0]) & (lon_k <= lon_range[1])
+        )
+        lon_k, lat_k, dtec_k = lon_k[in_domain], lat_k[in_domain], dtec_k[in_domain]
+        if do_collapse:
+            lon_k, lat_k, dtec_k = _collapse_pairs(
+                pid_k[in_domain], lon_k, lat_k, dtec_k)
+        return lon_k, lat_k, dtec_k
+
+    # Reference density for the alpha fade (auto = percentile over sample frames)
+    if alpha_fade and alpha_ref is None:
+        pw_, ph_ = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        wd_, hd_ = max(1, pw_ // voronoi_downscale), max(1, ph_ // voronoi_downscale)
+        pooled = []
+        for k in np.linspace(0, max(n_frames - 1, 0), min(24, max(n_frames, 1))).astype(int):
+            lo_, la_, _ = _frame_points(int(k))
+            if len(lo_):
+                pooled.append(_density_grid(lo_, la_, lat_range, lon_range,
+                                            wd_, hd_, alpha_sigma_deg).ravel())
+        if not pooled:
+            print("[dtecmap] [warn] no IPPs in sample frames — alpha_fade disabled.",
+                  file=sys.stderr)
+            alpha_fade = False
+        else:
+            pooled = np.concatenate(pooled)
+            q10, q50, q75, q90 = np.percentile(pooled, [10, 50, _ALPHA_AUTO_PCT, 90])
+            alpha_ref = float(q75)
+            print(f"[dtecmap] alpha: IPP density [pts/deg²] P10={q10:.2f}  P50={q50:.2f}  "
+                  f"P{_ALPHA_AUTO_PCT}={q75:.2f}  P90={q90:.2f}")
+            print(f"[dtecmap] alpha: auto alpha_ref = {alpha_ref:.2f} pts/deg² "
+                  f"(pass --alpha-ref {alpha_ref:.2f} to pin it)")
+    elif alpha_fade:
+        print(f"[dtecmap] alpha: alpha_ref = {alpha_ref:g} pts/deg² (user-set)")
 
     # ffmpeg pipe
     cmd = [
@@ -473,19 +762,8 @@ def main(year, doy,
 
     for k in range(n_frames):
         t_bin_s = t0_s + k * dt_sec
-        t_bin_e = t_bin_s + dt_sec
 
-        mask = (t_sec >= t_bin_s) & (t_sec < t_bin_e)
-        lon_k  = lon_v[mask]
-        lat_k  = lat_v[mask]
-        dtec_k = dtec_v[mask]
-
-        # Filter to domain
-        in_domain = (
-            (lat_k >= lat_range[0]) & (lat_k <= lat_range[1]) &
-            (lon_k >= lon_range[0]) & (lon_k <= lon_range[1])
-        )
-        lon_k, lat_k, dtec_k = lon_k[in_domain], lat_k[in_domain], dtec_k[in_domain]
+        lon_k, lat_k, dtec_k = _frame_points(k)
 
         hh  = int(t_bin_s) // 3600
         mm  = (int(t_bin_s) % 3600) // 60
@@ -494,7 +772,9 @@ def main(year, doy,
                  f"{hh:02d}:{mm:02d}:{ss:02d} UT  "
                  f"(+{dt_sec} s)  |  "
                  f"{movavg_str}-min avg  |  "
-                 f"n={len(dtec_k)}")
+                 + (f"FWHM {smooth_fwhm_deg:g} deg  |  "
+                    if smooth_fwhm_deg else "")
+                 + f"n={len(dtec_k)}")
 
         if mode == "scatter":
             frame = _render_frame(bg, bbox, lat_range, lon_range,
@@ -505,7 +785,12 @@ def main(year, doy,
                                           lon_k, lat_k, dtec_k, title, trh,
                                           downscale=voronoi_downscale,
                                           max_dist_deg=voronoi_max_dist_deg,
-                                          draw_borders=voronoi_borders)
+                                          draw_borders=voronoi_borders,
+                                          smooth_fwhm_deg=smooth_fwhm_deg,
+                                          alpha_fade=alpha_fade,
+                                          alpha_ref=alpha_ref,
+                                          alpha_sigma_deg=alpha_sigma_deg,
+                                          alpha_min=alpha_min)
         ff.stdin.write(frame.tobytes())
 
         if (k + 1) % 500 == 0 or (k + 1) == n_frames:
@@ -556,6 +841,24 @@ def _parse():
                    help="[voronoi] Cap cell reach in degrees (default: uncapped)")
     p.add_argument("--voronoi-no-borders", action="store_true",
                    help="[voronoi] Disable cell-boundary lines")
+    p.add_argument("--smooth-fwhm", type=float, default=None,
+                   metavar="DEG",
+                   help="[voronoi] 2-D Gaussian smoothing, FWHM in degrees "
+                        "(default: off)")
+    p.add_argument("--alpha-fade", action="store_true",
+                   help="[voronoi] Fade colours where the local IPP density is low")
+    p.add_argument("--alpha-ref", type=float, default=None, metavar="PTS_PER_DEG2",
+                   help="IPP density (pts/deg^2) with full opacity "
+                        "(default: auto, printed at start)")
+    p.add_argument("--alpha-sigma", type=float, default=1.0, metavar="DEG",
+                   help="Kernel bandwidth (deg) of the density estimate (default 1.0)")
+    p.add_argument("--alpha-min", type=float, default=0.0, metavar="A",
+                   help="Opacity floor in [0,1) (default 0 = fully transparent)")
+    p.add_argument("--prn-col", default="prn",
+                   help="Parquet column with the satellite PRN (default 'prn')")
+    p.add_argument("--no-collapse", action="store_true",
+                   help="Do NOT merge IPPs of the same receiver-PRN pair "
+                        "within a frame")
     p.add_argument("--trh",       type=float, default=0.15,
                    help="±dTEC colour saturation threshold (TECU)")
     p.add_argument("--width",     type=int,   default=900)
@@ -583,16 +886,23 @@ if __name__ == "__main__":
             mode="voronoi",        # "scatter" ou "voronoi"
             lat_range=(-43., -10.),
             lon_range=(-60., -40.),
-            dt_sec=15,
+            dt_sec=30,
             t_range_h=(0, 24),    # dia inteiro; use (3, 6) para testar rápido
             radius_px=9,          # [scatter] ~0.5° a 900 px / 20°
             voronoi_downscale=3,  # [voronoi] 3 = ~4 min/dia, 2 = mais nítido e mais lento
             voronoi_max_dist_deg=None,  # [voronoi] None = tessellation completa, sem buracos
             voronoi_borders=False,  # sem linhas entre células
+            smooth_fwhm_deg=0.5,    # [voronoi] FWHM da gaussiana 2D (graus); None = sem suavização
+            alpha_fade=True,        # [voronoi] esmaece regiões com poucos IPPs (alfa ∝ densidade)
+            alpha_ref=None,         # IPPs/deg² com opacidade total; None = automático (valor é impresso)
+            alpha_sigma_deg=1.0,    # largura (graus) do kernel de densidade
+            alpha_min=0.0,          # piso de opacidade (0 = some por completo)
+            prn_col="prn",          # coluna do PRN no parquet (ajuste ao nome real)
+            collapse_pairs=True,    # funde IPPs do mesmo par receptor-PRN dentro do frame
             trh=0.15,
             width_px=900,
             height_px=1000,
-            out_path="/home/hisashi/database/ionosphere/dtecmaps/meu_video2.mp4",
+            out_path="/home/hisashi/database/ionosphere/dtecmaps/meu_video7.mp4",
             fps=24,
             crf=18,
         )
@@ -612,6 +922,13 @@ if __name__ == "__main__":
             voronoi_downscale=args.voronoi_downscale,
             voronoi_max_dist_deg=args.voronoi_max_dist,
             voronoi_borders=not args.voronoi_no_borders,
+            smooth_fwhm_deg=args.smooth_fwhm,
+            alpha_fade=args.alpha_fade,
+            alpha_ref=args.alpha_ref,
+            alpha_sigma_deg=args.alpha_sigma,
+            alpha_min=args.alpha_min,
+            prn_col=args.prn_col,
+            collapse_pairs=not args.no_collapse,
             trh=args.trh,
             width_px=args.width,
             height_px=args.height,
