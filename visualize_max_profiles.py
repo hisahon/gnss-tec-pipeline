@@ -36,6 +36,8 @@ script (F5).
 @author: hisas
 """
 
+import inspect
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -296,13 +298,42 @@ def _add_extent_annotation(ax, lat_min, lat_max):
             bbox=dict(boxstyle="round", facecolor="white", alpha=0.7, edgecolor="none"))
 
 
-def _add_footer(fig, storage_subfolder: str):
-    fig.text(0.9, -0.06,
-              'Script: gnss-tec-pipeline/visualize_max_profiles.py\n'
-              'Function: plot_extreme_profiles\n'
-              f'Storage: database/ionosphere/{storage_subfolder}/',
-              horizontalalignment='right', verticalalignment='bottom',
-              fontsize=7, color='red', alpha=0.5)
+def add_provenance_footer(fig, storage_path, x=0.99, y=0.0, **kwargs):
+    """
+    Adiciona rodapé com Script / Function / Storage no canto inferior
+    direito da figura, descobrindo automaticamente (via inspect) o arquivo
+    e a função que chamaram esta rotina — evita rodapés dessincronizados
+    ao copiar/colar entre scripts.
+
+    O texto é ancorado pelo TOPO logo abaixo da borda inferior da figura
+    (y=0, va='top'); como o savefig usa bbox_inches="tight", ele entra na
+    imagem salva sem sobrepor o rótulo do eixo x.
+    """
+    caller = inspect.stack()[1]
+    try:
+        script_name = os.path.relpath(caller.filename)
+    except ValueError:
+        # Windows: relpath falha se o arquivo estiver em outro drive
+        script_name = caller.filename
+    function_name = caller.function
+    storage_text  = str(storage_path)
+
+    text = (
+        f"Script: {script_name}\n"
+        f"Function: {function_name}\n"
+        f"Storage: {storage_text}"
+    )
+
+    defaults = dict(
+        horizontalalignment='right',
+        verticalalignment='top',
+        fontsize=7,
+        color='black',
+        alpha=0.7,
+    )
+    defaults.update(kwargs)
+
+    fig.text(x, y, text, **defaults)
 
 
 def plot_extreme_profiles(results: dict, resolution: str = "ultra",
@@ -347,13 +378,13 @@ def plot_extreme_profiles(results: dict, resolution: str = "ultra",
                                            lat_boundaries=lat_boundaries)
     _add_extent_annotation(ax, lat_min, lat_max)
 
-    _add_footer(fig, "keograms_dtecs")
-
     if out_path is None:
         tag = "_".join(dates)
         out_dir = dtec_keogram_figs_dir().parent / "keograms_dtecs"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"keogram_extremeprofile_lat_{resolution}_{tag}.png"
+
+    add_provenance_footer(fig, Path(out_path).parent)
 
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     print(f"Figure saved: {out_path}")
@@ -411,13 +442,13 @@ def plot_extreme_profiles_cropped(results: dict, resolution: str = "ultra",
                                            lat_boundaries=lat_boundaries)
     _add_extent_annotation(ax, lat_min, lat_max)
 
-    _add_footer(fig, "keograms_dtecs")
-
     if out_path is None:
         tag = "_".join(dates)
         out_dir = dtec_keogram_figs_dir().parent / "keograms_dtecs"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"keogram_extremeprofile_lat_cropped_{resolution}_{tag}.png"
+
+    add_provenance_footer(fig, Path(out_path).parent)
 
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     print(f"Figure saved: {out_path}")
