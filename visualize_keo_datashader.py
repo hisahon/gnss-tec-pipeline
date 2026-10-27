@@ -9,6 +9,9 @@ using datashader + dask. Generates TWO independent keograms per day:
 Reads the per-station IPP parquets produced by `visualize_ipp.py` and
 generates one .nc grid + one .png image per axis.
 
+Low-memory version: batched dask aggregation with limited threads,
+float32 grids, and block-wise vertical smoothing.
+
 @author: hisas
 """
 
@@ -17,6 +20,7 @@ import re
 from pathlib import Path
 
 import numpy as np
+import dask                                   # NOVO: controle de threads
 import dask.dataframe as dd
 import datashader as ds
 import datashader.transfer_functions as tf
@@ -45,22 +49,32 @@ from shared.config import dtec_ipp_dir, dtec_keogram_dir, dtec_keogram_figs_dir,
 # import numpy as np
 
 
-def smooth_vertical_nan(arr, size, axis=0, treat_zero_as_missing=True):
+def smooth_vertical_nan(arr, size, axis=0, treat_zero_as_missing=True, block=500):
     """Vertical moving average (degree axis) ignoring NaN and, optionally,
-    zeros (empty bins). size=None or <=1 returns the array untouched."""
+    zeros (empty bins). size=None or <=1 returns the array untouched.
+
+    ALTERADO (baixo consumo de RAM): processa em blocos de colunas (tempo) e
+    usa float32. Como a suavização é só vertical (axis=0), cada coluna é
+    independente e o resultado é idêntico ao da versão anterior.
+    """
     if size is None or size <= 1:
         return arr
 
-    arr = arr.astype(float)
-    valid = np.isfinite(arr)
-    if treat_zero_as_missing:
-        valid &= (arr != 0.0)
+    out = np.empty(arr.shape, dtype=np.float32)
+    for j in range(0, arr.shape[1], block):          # blocos de colunas (tempo)
+        sl = arr[:, j:j + block].astype(np.float32)
+        valid = np.isfinite(sl)
+        if treat_zero_as_missing:
+            valid &= (sl != 0.0)
 
-    filled = np.where(valid, arr, 0.0)
-    num = uniform_filter1d(filled, size=size, axis=axis, mode="nearest")
-    den = uniform_filter1d(valid.astype(float), size=size, axis=axis, mode="nearest")
+        filled = np.where(valid, sl, np.float32(0))
+        num = uniform_filter1d(filled, size=size, axis=axis, mode="nearest")
+        den = uniform_filter1d(valid.astype(np.float32), size=size, axis=axis, mode="nearest")
 
-    return np.divide(num, den, out=np.full_like(arr, np.nan), where=den > 0)
+        out[:, j:j + block] = np.divide(num, den,
+                                        out=np.full_like(sl, np.nan),
+                                        where=den > 0)
+    return out
 
 
 
@@ -72,45 +86,60 @@ def build_keogram_grid(
     plot_width: int = 5760,
     plot_height: int = 1200,
     dtec_col: str = "dtec_30min",
+    num_workers: int = 6,     # NOVO: nº de threads do dask
+    batch_size: int = 12,     # NOVO: nº de parquets agregados por lote
 ):
     if not parquet_files:
         raise FileNotFoundError("No IPP parquet files provided.")
 
-    # 1. Leia apenas as colunas que não são índice
-    df_all = dd.read_parquet(parquet_files, columns=[y_col, dtec_col])
-    df_all = df_all.dropna(subset=[y_col, dtec_col])
-    
-    # 2. O reset_index() transforma o índice original (horario) em uma coluna
-    df_all = df_all.reset_index()
-
-    # 3. Agora a coluna "horario" existe para o cálculo dos segundos
-    df_all["t_seconds"] = (
-        df_all["horario"].dt.hour * 3600
-        + df_all["horario"].dt.minute * 60
-        + df_all["horario"].dt.second
-    ).astype("int32")
-
     canvas = ds.Canvas(
         plot_width=plot_width,
         plot_height=plot_height,
-        x_range=(0, 86400),   
+        x_range=(0, 86400),
         y_range=y_range,
     )
 
-    # 1. Mapeia os extremos superiores (picos) e inferiores (depleções)
-    agg_max = canvas.points(df_all, "t_seconds", y_col, agg=ds.max(dtec_col))
-    agg_min = canvas.points(df_all, "t_seconds", y_col, agg=ds.min(dtec_col))
+    run_max = run_min = None  # NOVO: acumuladores float32 entre lotes
 
-    # 2. Preenche NaNs temporariamente com 0 apenas para a condição booleana
-    # Isso evita avisos de erro (RuntimeWarning) ao comparar NaNs no numpy
-    max_mag = np.abs(agg_max.fillna(0))
-    min_mag = np.abs(agg_min.fillna(0))
+    # Limita as threads e processa os arquivos em lotes: o pico de RAM passa a
+    # depender de num_workers/batch_size, e não do nº total de estações.
+    with dask.config.set(scheduler="threads", num_workers=num_workers):
+        for i in range(0, len(parquet_files), batch_size):
+            batch = parquet_files[i:i + batch_size]
 
-    # 3. Combina as matrizes: Retorna agg_max se a magnitude dele for maior, senão agg_min
-    # Como as matrizes originais (agg_max e agg_min) contêm os NaNs, os "buracos" da grade são preservados
-    agg_abs_max = xr.where(max_mag >= min_mag, agg_max, agg_min)
+            # 1. Leia apenas as colunas que não são índice
+            df_all = dd.read_parquet(batch, columns=[y_col, dtec_col])
+            df_all = df_all.dropna(subset=[y_col, dtec_col])
 
-    return agg_abs_max
+            # 2. O reset_index() transforma o índice original (horario) em uma coluna
+            df_all = df_all.reset_index()
+
+            # 3. Agora a coluna "horario" existe para o cálculo dos segundos
+            df_all["t_seconds"] = (
+                df_all["horario"].dt.hour * 3600
+                + df_all["horario"].dt.minute * 60
+                + df_all["horario"].dt.second
+            ).astype("int32")
+
+            # Mapeia os extremos superiores (picos) e inferiores (depleções)
+            a_max = canvas.points(df_all, "t_seconds", y_col, agg=ds.max(dtec_col)).astype("float32")
+            a_min = canvas.points(df_all, "t_seconds", y_col, agg=ds.min(dtec_col)).astype("float32")
+
+            if run_max is None:
+                run_max, run_min = a_max, a_min
+            else:
+                # fmax/fmin ignoram NaN, então os "buracos" da grade são preservados
+                np.fmax(run_max.data, a_max.data, out=run_max.data)
+                np.fmin(run_min.data, a_min.data, out=run_min.data)
+            del df_all, a_max, a_min
+
+    # Combina: usa o min onde a magnitude dele é maior que a do max, senão mantém o max.
+    # Mesmo critério de antes, mas in-place (sem fillna / xr.where / cópias float64).
+    # Onde não há dado, a comparação com NaN dá False e o NaN é mantido.
+    use_min = np.abs(run_min.data) > np.abs(run_max.data)
+    run_max.data[use_min] = run_min.data[use_min]
+
+    return run_max
 
 
 # ==========================================
@@ -119,6 +148,11 @@ def build_keogram_grid(
 def save_grid(agg, nc_path: Path):
     nc_path = Path(nc_path)
     nc_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # ALTERADO: grava sempre em float32 (com compressão opcional)
+    agg = agg.astype("float32")
+    agg.encoding.update(dtype="float32", zlib=True, complevel=4)  # compressão opcional
+
     agg.to_netcdf(str(nc_path))
     print(f"Grid saved: {nc_path}")
 
@@ -456,8 +490,8 @@ if __name__ == "__main__":
     LAT_RANGE = (-43.01,  -9.99)    # 120° span
     LON_RANGE = (-60.01, -39.99)   # 100° span (Americas)
     
-    # LAT_RANGE = None
-    # LON_RANGE = None
+    LAT_RANGE = None
+    LON_RANGE = None
     
     # TIME_RANGE = (0, 24)
 
@@ -470,6 +504,7 @@ if __name__ == "__main__":
     if RUN_MANUALLY:
         print("Running in IDE Manual Mode...")
         year, doy = 2021, 296
+        
         
         # resolution = 'low'
         resolution = 'high'
