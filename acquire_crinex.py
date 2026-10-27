@@ -17,12 +17,19 @@ Uso::
     python 01_download.py --year 2025 --doy 298 --network rbmc
     python 01_download.py --year 2025 --doy 298 --network ramsac
     python 01_download.py --year 2025 --doy 298 --network both
+
+A data também pode ser informada com ``--date`` (no lugar de ``--year``/``--doy``),
+em ``YYYYMMDD`` ou ``DD/MM/AAAA``::
+
+    python 01_download.py --date 20251025 --network rbmc
+    python 01_download.py --date 25/10/2025 --network ramsac
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import re
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -117,9 +124,12 @@ def download_rbmc(year: int, doy: int, out_dir: Path) -> None:
 # =========================================================================
 
 def load_ramsac_stations(path: Path) -> list[str]:
-    """Lê o arquivo de estações (strings de 4 caracteres concatenadas)."""
-    content = path.read_text().strip().lower()
-    return [content[i : i + 4] for i in range(0, len(content), 4)]
+    """Lê o arquivo de estações (uma por linha; ignora vazias e comentários ``#``)."""
+    return [
+        line.strip().lower()
+        for line in path.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
 
 
 def ramsac_filename(station: str, year: int, doy: int) -> str:
@@ -181,6 +191,17 @@ def run(year: int, doy: int, network: str = "both") -> None:
         NETWORKS[net](year, doy, out_dir)
 
 
+def parse_date(value: str) -> datetime:
+    """Converte ``YYYYMMDD`` (ex.: 20210715) ou ``DD/MM/AAAA`` (ex.: 15/7/2021).
+
+    Levanta ``ValueError`` se o formato ou a data forem inválidos.
+    """
+    value = value.strip()
+    if re.fullmatch(r"\d{8}", value):
+        return datetime.strptime(value, "%Y%m%d")
+    return datetime.strptime(value, "%d/%m/%Y")
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Download (C)RINEX das redes GNSS")
     
@@ -192,7 +213,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--date", 
         type=str, 
-        help="Data no formato DD/MM/AAAA (ex: 15/7/2021 ou 15/07/2021)"
+        help="Data no formato YYYYMMDD (ex: 20210715) ou DD/MM/AAAA (ex: 15/7/2021)"
     )
     
     p.add_argument(
@@ -207,13 +228,16 @@ def parse_args() -> argparse.Namespace:
     # Lógica de validação: processa --date se fornecido, senão exige --year e --doy
     if args.date:
         try:
-            # Converte a string "15/7/2021" para um objeto datetime
-            dt = datetime.strptime(args.date, "%d/%m/%Y")
+            # Converte "20210715" ou "15/7/2021" para um objeto datetime
+            dt = parse_date(args.date)
             # Extrai o ano e o dia do ano (DOY)
             args.year = dt.year
             args.doy = dt.timetuple().tm_yday
         except ValueError:
-            p.error("Formato de data inválido. Use DD/MM/AAAA (ex: 15/7/2021).")
+            p.error(
+                "Formato de data inválido. Use YYYYMMDD (ex: 20210715) "
+                "ou DD/MM/AAAA (ex: 15/7/2021)."
+            )
     elif args.year is None or args.doy is None:
         p.error("Você deve fornecer o argumento --date OU a combinação de --year e --doy.")
 
