@@ -42,6 +42,7 @@ import logging
 import pickle
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from shared.config import rinex_dir, tec_dir, setup_logging
@@ -65,6 +66,16 @@ def running_in_spyder() -> bool:
 # --------------------------------------------------------------------------
 # Núcleo
 # --------------------------------------------------------------------------
+
+def date_str(year: int, doy: int) -> str:
+    """Converte year/doy em ``YYYY-MM-DD`` (``?`` se o doy for inválido)."""
+    try:
+        d = datetime.strptime(f"{year}-{doy:03d}", "%Y-%j")
+    except ValueError:
+        return "?"
+    # strptime aceita doy 366 em ano não bissexto e vira o ano
+    return d.strftime("%Y-%m-%d") if d.year == year else "?"
+
 
 def quarantine_dir_for(rinex_folder: Path) -> Path:
     """Pasta de quarentena espelhando a estrutura ``{year}/{doy}`` do RINEX.
@@ -137,7 +148,11 @@ def run(year: int, doy: int, debug: bool = False) -> None:
 
     lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
 
-    lg.info("=== 3.1 %s ===", "DEBUG (quarentena)" if debug else "RINEX → pickle")
+    lg.info(
+        "########## %d / doy %03d (%s) | 3.1 %s ##########",
+        year, doy, date_str(year, doy),
+        "DEBUG (quarentena)" if debug else "RINEX → pickle",
+    )
     lg.info("  RINEX:      %s", rinex_folder)
     lg.info("  Pickle:     %s", tec_folder)
     lg.info("  Quarentena: %s", quarantine_folder)
@@ -170,5 +185,4 @@ if __name__ == "__main__":
     pairs = resolve_pairs(args, 'rinexRAWReferenceFolder')
     log.info("Encontradas %d pastas year/doy para processar", len(pairs))
     for year, doy in pairs:
-        log.info("=== %d / doy %03d ===", year, doy)
         run(year, doy, debug=debug)
