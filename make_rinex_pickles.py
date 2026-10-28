@@ -133,19 +133,24 @@ def run(year: int, doy: int, debug: bool = False) -> None:
     rinex_folder = rinex_dir(year, doy)
     tec_folder = tec_dir(year, doy)
 
+    quarantine_folder = quarantine_dir_for(rinex_folder)
+
     lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
 
+    lg.info("=== 3.1 %s ===", "DEBUG (quarentena)" if debug else "RINEX → pickle")
+    lg.info("  RINEX:      %s", rinex_folder)
+    lg.info("  Pickle:     %s", tec_folder)
+    lg.info("  Quarentena: %s", quarantine_folder)
+
     if debug:
-        lg.info("=== 3.1 DEBUG (quarentena) ===")
-        debug_quarantine(quarantine_dir_for(rinex_folder))
+        debug_quarantine(quarantine_folder)
         return
 
     if not rinex_folder.exists():
         lg.warning("Pasta de entrada inexistente: %s", rinex_folder)
         return
 
-    lg.info("=== 3.1 RINEX → pickle ===")
-    process_rinex_to_pickle(rinex_folder, tec_folder, quarantine_dir_for(rinex_folder))
+    process_rinex_to_pickle(rinex_folder, tec_folder, quarantine_folder)
 
 
 # --------------------------------------------------------------------------
