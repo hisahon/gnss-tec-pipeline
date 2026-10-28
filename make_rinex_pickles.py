@@ -17,6 +17,15 @@ Usage (terminal)::
     python make_rinex_pickles.py                       # whole tree
     python make_rinex_pickles.py --year 2025           # whole year
     python make_rinex_pickles.py --year 2025 --doy 298 # a single day
+    python make_rinex_pickles.py --workers 4           # whole tree, 4 processes
+
+Parallel mode (terminal only)
+-----------------------------
+``--workers N`` distributes the year/doy folders across N worker processes
+(capped at ``MAX_WORKERS`` = 6), one folder per task. Without the flag the
+processing is serial, exactly as before. The flag is ignored (with a warning)
+inside Spyder, and there is nothing to distribute when only one folder is
+selected. Log lines from different days may interleave.
 
 Debug mode (Spyder only)
 ------------------------
@@ -43,6 +52,7 @@ import logging
 import pickle
 import shutil
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -57,6 +67,9 @@ log = logging.getLogger("process.rinex_to_pickle")
 # Set to True manually to debug the RINEX files sitting in quarantine.
 # Only honored inside Spyder; ignored in the terminal.
 DEBUG_QUARANTINE = False
+
+# Upper limit for ``--workers`` (terminal only).
+MAX_WORKERS = 6
 
 
 def running_in_spyder() -> bool:
@@ -175,15 +188,41 @@ def run(year: int, doy: int, debug: bool = False) -> None:
 
 if __name__ == "__main__":
     setup_logging()
-    args = build_arg_parser(
-        "Step 3.1 — RINEX → pickle conversion"
-    ).parse_args()
+    parser = build_arg_parser("Step 3.1 — RINEX → pickle conversion")
+    parser.add_argument(
+        "--workers", type=int, default=None, metavar="N",
+        help=f"Process N year/doy folders in parallel (max {MAX_WORKERS}). "
+             "Terminal only (ignored inside Spyder). Omit for serial processing.",
+    )
+    args = parser.parse_args()
 
-    debug = DEBUG_QUARANTINE and running_in_spyder()
+    in_spyder = running_in_spyder()
+
+    debug = DEBUG_QUARANTINE and in_spyder
     if DEBUG_QUARANTINE and not debug:
         log.warning("DEBUG_QUARANTINE ignored: it only works inside Spyder")
 
+    workers = args.workers
+    if workers and in_spyder:
+        log.warning("--workers ignored: parallel mode only works in the terminal")
+        workers = None
+    elif workers and workers > MAX_WORKERS:
+        log.warning("--workers %d capped at %d", workers, MAX_WORKERS)
+        workers = MAX_WORKERS
+
     pairs = resolve_pairs(args, 'rinexRAWReferenceFolder')
     log.info("Found %d year/doy folders to process", len(pairs))
-    for year, doy in pairs:
-        run(year, doy, debug=debug)
+
+    if workers and workers > 1 and len(pairs) > 1:
+        n = min(workers, len(pairs))
+        log.info("Parallel mode: %d workers", n)
+        with ProcessPoolExecutor(n) as ex:
+            futs = {ex.submit(run, y, d): (y, d) for y, d in pairs}
+            for fut in as_completed(futs):
+                try:
+                    fut.result()
+                except Exception:
+                    log.exception("Day %s failed", futs[fut])
+    else:
+        for year, doy in pairs:
+            run(year, doy, debug=debug)
