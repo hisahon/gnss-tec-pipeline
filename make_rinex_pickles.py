@@ -27,6 +27,11 @@ processing is serial, exactly as before. The flag is ignored (with a warning)
 inside Spyder, and there is nothing to distribute when only one folder is
 selected. Log lines from different days may interleave.
 
+Ctrl-C stops everything right away: queued days are cancelled and the workers
+are terminated, discarding the file being processed. Pickles are written to a
+``.pkl.tmp`` file and renamed when complete, so no truncated ``.pkl`` is left
+behind (a stray ``.pkl.tmp`` is harmless and gets overwritten on the next run).
+
 Debug mode (Spyder only)
 ------------------------
 Use it to investigate why the quarantined files fail.
@@ -49,8 +54,10 @@ runs.
 from __future__ import annotations
 
 import logging
+import os
 import pickle
 import shutil
+import signal
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
@@ -178,10 +185,14 @@ def process_rinex_to_pickle(
             )
             continue
 
+        # Write to a temp file and rename, so an interruption (Ctrl-C, killed
+        # worker) never leaves a truncated .pkl that would be skipped later.
+        tmp_path = out_path.with_name(out_path.name + ".tmp")
         try:
             dic = rnx.read_rinex(str(rinex_path))
-            with open(out_path, "wb") as f:
+            with open(tmp_path, "wb") as f:
                 pickle.dump(dic, f)
+            os.replace(tmp_path, out_path)
             log.info(
                 "%s | [%d/%d] OK   %s", day, i, total, rinex_path.name,
                 extra=station_extra(rinex_path),
@@ -192,6 +203,8 @@ def process_rinex_to_pickle(
                 extra=station_extra(rinex_path),
             )
             quarantine_file(rinex_path, quarantine_folder, day, i, total)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
 
 def run(year: int, doy: int, debug: bool = False) -> None:
@@ -221,6 +234,21 @@ def run(year: int, doy: int, debug: bool = False) -> None:
         return
 
     process_rinex_to_pickle(rinex_folder, tec_folder, quarantine_folder, day)
+
+
+def _init_worker() -> None:
+    """Workers ignore Ctrl-C: only the main process reacts to it."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def _stop_pool(ex: ProcessPoolExecutor) -> None:
+    """Cancel the queued days and kill the workers right away."""
+    procs = list((getattr(ex, "_processes", None) or {}).values())
+    ex.shutdown(wait=False, cancel_futures=True)
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        p.join(timeout=5)
 
 
 # --------------------------------------------------------------------------
@@ -257,13 +285,19 @@ if __name__ == "__main__":
     if workers and workers > 1 and len(pairs) > 1:
         n = min(workers, len(pairs))
         log.info("Parallel mode: %d workers", n)
-        with ProcessPoolExecutor(n) as ex:
+        ex = ProcessPoolExecutor(n, initializer=_init_worker)
+        try:
             futs = {ex.submit(run, y, d): (y, d) for y, d in pairs}
             for fut in as_completed(futs):
                 try:
                     fut.result()
                 except Exception:
                     log.exception("Day %s failed", futs[fut])
+            ex.shutdown()
+        except KeyboardInterrupt:
+            log.warning("Ctrl-C: cancelling queued days and stopping the workers")
+            _stop_pool(ex)
+            sys.exit(130)
     else:
         for year, doy in pairs:
             run(year, doy, debug=debug)
