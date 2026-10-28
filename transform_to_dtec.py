@@ -22,6 +22,7 @@ Created: 2025-11-03
 """
 
 # import os
+import logging
 from datetime import datetime, timedelta
 # from pathlib import Path
 
@@ -33,9 +34,27 @@ from scipy.signal import butter, sosfilt, sosfiltfilt, hilbert
 # from concurrent.futures import ProcessPoolExecutor
 # from functools import partial
 
-from shared.config import dtec_pc_dir#, ephemeris_parquet_dir
+from shared.config import dtec_pc_dir, setup_logging#, ephemeris_parquet_dir
+from shared.pipeline_utils import build_arg_parser, resolve_pairs
 from shared.prn_store import load_tec_with_neighbors_v2, get_station_names
 from shared.geometry import interpolate_orbits, satellite_xyz_v2
+
+log = logging.getLogger("process.dtec")
+
+# ---------------------------------------------------------------------------
+# Pipeline parameters (module-level so aplicar_filtros_dtec/run can see them
+# no matter how the module is imported)
+# ---------------------------------------------------------------------------
+DETREND_WIN_MIN  = 15
+DETREND_WIN_SEC  = 60 * DETREND_WIN_MIN  # moving-average window for detrending [s]
+# BANDPASS_CUTOFFS = (5e-4, 1e-2)        # passband [Hz] -> ~33 min ... ~100 s
+BANDPASS_CUTOFFS = (1.11e-3, 1e-2)       # passband [Hz] -> ~15 min ... ~100 s
+BANDPASS_ORDER   = 4
+SPIKE_DIFF_LIMIT = 5.0                   # |diff(TEC)| threshold for spike removal
+
+# Chave da pasta de referência usada por resolve_pairs() para descobrir os
+# pares (year, doy). Mesma do process_tec_pcarrier.py.
+PAIRS_REFERENCE  = 'rinexPKLReferenceFolder'
 
 
 
@@ -452,7 +471,12 @@ def get_sampling_rate_hz(timestamps) -> float:
 #     print(f"{file.name} [done]")
     
 
-def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_figs: bool = False) -> pd.DataFrame:
+def aplicar_filtros_dtec(
+    df: pd.DataFrame,
+    dt_in: datetime,
+    station: str = "Desconhecida",
+    plot_figs: bool = False,
+) -> pd.DataFrame:
     """
     Processa um DataFrame de TEC em formato long e aplica o pipeline de dTEC.
     
@@ -578,7 +602,7 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
             # qtd_linhas = len(df_final)
             
             # # Opcional: imprimir no console ou em log para acompanhamento
-            print(f"Finalizado a estação: {station}")
+            log.debug("Finalizado a estação: %s", station)
             
             # Salva o arquivo apenas se não estiver vazio
             # if not df_final.empty: # ou "if qtd_linhas > 0:"
@@ -592,38 +616,79 @@ def aplicar_filtros_dtec(df: pd.DataFrame, station: str = "Desconhecida", plot_f
 
 
 # ---------------------------------------------------------------------------
+# Per-day driver
+# ---------------------------------------------------------------------------
+def run(year: int, doy: int, plot_figs: bool = False) -> None:
+    """Calcula o dTEC de todas as estações de um dia (year, doy).
+
+    Estações cujo parquet de saída já existe são puladas, então é seguro
+    reexecutar para retomar um processamento interrompido.
+    """
+    dt_in = datetime.strptime(f"{year}-{doy:03d}", "%Y-%j")
+
+    out_dir = dtec_pc_dir(year, doy)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    stations = get_station_names(year, doy)
+    if len(stations) == 0:
+        log.warning("%d/%03d: nenhuma estação encontrada em tec_pc — dia pulado", year, doy)
+        return
+
+    dic_ephemeris = interpolate_orbits(year, doy)
+
+    total = len(stations)
+    n_done = n_skipped = n_empty = n_failed = 0
+
+    for i, station in enumerate(stations, start=1):
+        out_file = out_dir / f"{station}_dtec_{year}{doy:03d}.parquet"
+        if out_file.exists():
+            n_skipped += 1
+            log.debug("[%d/%d] SKIP %s (já gravada)", i, total, station)
+            continue
+
+        try:
+            df_tec = load_tec_with_neighbors_v2(year, doy, station)
+            df_dtec = aplicar_filtros_dtec(df_tec, dt_in, station, plot_figs=plot_figs)
+            if not df_dtec.empty:
+                df_dtec = satellite_xyz_v2(df_dtec, dic_ephemeris)
+            if df_dtec.empty:
+                n_empty += 1
+                log.info("[%d/%d] %s sem dado útil", i, total, station)
+                continue
+
+            # Escreve em .tmp e renomeia: uma interrupção nunca deixa um
+            # parquet parcial que seria tratado como "já gravado" na reexecução.
+            tmp_file = out_file.with_suffix(".parquet.tmp")
+            df_dtec.to_parquet(tmp_file, index=False)
+            tmp_file.replace(out_file)
+            n_done += 1
+            log.debug("[%d/%d] %s OK", i, total, station)
+        except Exception:
+            n_failed += 1
+            log.exception("[%d/%d] dTEC FAIL %d/%03d %s", i, total, year, doy, station)
+
+    log.info(
+        "%d/%03d dTEC: %d gravadas, %d já existiam, %d sem dado, %d falhas (de %d)",
+        year, doy, n_done, n_skipped, n_empty, n_failed, total,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Script entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    
-    year, doy = 2026, 204
-    
-    # ---------------------------------------------------------------------------
-    # Pipeline parameters
-    # ---------------------------------------------------------------------------
-    DETREND_WIN_MIN  = 15
-    DETREND_WIN_SEC  = 60*DETREND_WIN_MIN  # moving-average window for detrending [s]
-    # BANDPASS_CUTOFFS = (5e-4, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
-    BANDPASS_CUTOFFS = (1.11e-3, 1e-2)    # passband [Hz] -> ~33 min ... ~100 s
-    BANDPASS_ORDER   = 4
-    SPIKE_DIFF_LIMIT = 5.0             # |diff(TEC)| threshold for spike removal
-    TO_PARQUET = True
-    
-    
-    dt_in = datetime.strptime(f"{year}-{doy}", "%Y-%j")
+    setup_logging()
+    args = build_arg_parser(
+        "dTEC — detrend + bandpass do TEC (pcarrier) por estação"
+    ).parse_args()
 
-    stations = get_station_names(year, doy)
-    dic_ephemeris = interpolate_orbits(year, doy)
+    pairs = resolve_pairs(args, PAIRS_REFERENCE)
+    log.info("Encontradas %d pastas year/doy para processar", len(pairs))
 
-    for station in stations:
-        out_file = dtec_pc_dir(year, doy) / f'{station}_dtec_{year}{doy:03d}.parquet'
-        if out_file.exists():
-            print(f'Ja gravado em disco: {station}')
-            continue
-
-        df_station_tec = load_tec_with_neighbors_v2(year, doy, station)
-        df_station_dtec = aplicar_filtros_dtec(df_station_tec, station, plot_figs=False)
-        if not df_station_dtec.empty:
-            df_station_dtec = satellite_xyz_v2(df_station_dtec, dic_ephemeris)
-        if not df_station_dtec.empty:
-            df_station_dtec.to_parquet(dtec_pc_dir(year, doy) / f'{station}_dtec_{year}{doy}.parquet', index=False)
+    for year, doy in pairs:
+        log.info("=== %d / doy %03d ===", year, doy)
+        try:
+            run(year, doy)
+        except Exception:
+            # Um dia problemático não derruba os demais.
+            log.exception("dTEC FAIL %d/%03d (seguindo para o próximo dia)", year, doy)
