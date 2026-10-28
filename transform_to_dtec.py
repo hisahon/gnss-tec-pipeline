@@ -639,11 +639,21 @@ def run(year: int, doy: int, plot_figs: bool = False) -> None:
     total = len(stations)
     n_done = n_skipped = n_empty = n_failed = 0
 
+    # Quanto deste dia já está em disco antes de começar (útil ao retomar).
+    n_existing = sum(
+        (out_dir / f"{s}_dtec_{year}{doy:03d}.parquet").exists() for s in stations
+    )
+    log.info(
+        "%d/%03d: %d/%d estações já gravadas (%.1f%%)",
+        year, doy, n_existing, total, 100.0 * n_existing / total,
+    )
+
     for i, station in enumerate(stations, start=1):
+        pct = 100.0 * i / total  # progresso do dia (inclui as já gravadas)
         out_file = out_dir / f"{station}_dtec_{year}{doy:03d}.parquet"
         if out_file.exists():
             n_skipped += 1
-            log.debug("[%d/%d] SKIP %s (já gravada)", i, total, station)
+            log.debug("[%d/%d %5.1f%%] SKIP %s (já gravada)", i, total, pct, station)
             continue
 
         try:
@@ -653,7 +663,7 @@ def run(year: int, doy: int, plot_figs: bool = False) -> None:
                 df_dtec = satellite_xyz_v2(df_dtec, dic_ephemeris)
             if df_dtec.empty:
                 n_empty += 1
-                log.info("[%d/%d] %s sem dado útil", i, total, station)
+                log.info("[%d/%d %5.1f%%] %s sem dado útil", i, total, pct, station)
                 continue
 
             # Escreve em .tmp e renomeia: uma interrupção nunca deixa um
@@ -662,10 +672,12 @@ def run(year: int, doy: int, plot_figs: bool = False) -> None:
             df_dtec.to_parquet(tmp_file, index=False)
             tmp_file.replace(out_file)
             n_done += 1
-            log.debug("[%d/%d] %s OK", i, total, station)
+            log.info("[%d/%d %5.1f%%] %d/%03d dTEC OK  %s", i, total, pct, year, doy, station)
         except Exception:
             n_failed += 1
-            log.exception("[%d/%d] dTEC FAIL %d/%03d %s", i, total, year, doy, station)
+            log.exception(
+                "[%d/%d %5.1f%%] dTEC FAIL %d/%03d %s", i, total, pct, year, doy, station,
+            )
 
     log.info(
         "%d/%03d dTEC: %d gravadas, %d já existiam, %d sem dado, %d falhas (de %d)",
@@ -685,8 +697,12 @@ if __name__ == "__main__":
     pairs = resolve_pairs(args, PAIRS_REFERENCE)
     log.info("Encontradas %d pastas year/doy para processar", len(pairs))
 
-    for year, doy in pairs:
-        log.info("=== %d / doy %03d ===", year, doy)
+    n_days = len(pairs)
+    for d, (year, doy) in enumerate(pairs, start=1):
+        log.info(
+            "=== %d / doy %03d  [dia %d/%d, %.1f%%] ===",
+            year, doy, d, n_days, 100.0 * d / n_days,
+        )
         try:
             run(year, doy)
         except Exception:
