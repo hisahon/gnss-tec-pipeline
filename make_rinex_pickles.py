@@ -64,6 +64,29 @@ from shared.prn_store import list_files
 
 log = logging.getLogger("process.rinex_to_pickle")
 
+
+class _StationFilter(logging.Filter):
+    """Show the station ID in the logger-name column of per-file log lines.
+
+    Records logged with ``extra={"station": ...}`` get ``record.name`` replaced
+    by the station ID; every other record keeps the normal logger name.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        station = getattr(record, "station", None)
+        if station:
+            record.name = station
+        return True
+
+
+log.addFilter(_StationFilter())
+
+
+def station_extra(rinex_path: Path) -> dict:
+    """``extra`` for log calls: station ID = first 4 chars of the RINEX name."""
+    return {"station": rinex_path.name[:4]}
+
+
 # Set to True manually to debug the RINEX files sitting in quarantine.
 # Only honored inside Spyder; ignored in the terminal.
 DEBUG_QUARANTINE = False
@@ -99,15 +122,23 @@ def quarantine_dir_for(rinex_folder: Path) -> Path:
     return rinex_folder.parents[2] / "quarantine" / rinex_folder.parent.name / rinex_folder.name
 
 
-def quarantine_file(rinex_path: Path, quarantine_folder: Path) -> None:
+def quarantine_file(
+    rinex_path: Path, quarantine_folder: Path, day: str, i: int, total: int
+) -> None:
     """Move the problematic RINEX to quarantine without interrupting the batch."""
     try:
         quarantine_folder.mkdir(parents=True, exist_ok=True)
         dest = quarantine_folder / rinex_path.name
         shutil.move(str(rinex_path), str(dest))
-        log.warning("QUARANTINE %s -> %s", rinex_path.name, dest)
+        log.warning(
+            "%s | [%d/%d] QUAR %s", day, i, total, rinex_path.name,
+            extra=station_extra(rinex_path),
+        )
     except Exception:
-        log.exception("Could not move %s to quarantine", rinex_path.name)
+        log.exception(
+            "%s | [%d/%d] QUAR FAIL %s (could not move to quarantine)",
+            day, i, total, rinex_path.name, extra=station_extra(rinex_path),
+        )
 
 
 def debug_quarantine(quarantine_folder: Path) -> None:
@@ -132,7 +163,7 @@ def debug_quarantine(quarantine_folder: Path) -> None:
 
 
 def process_rinex_to_pickle(
-    rinex_folder: Path, tec_folder: Path, quarantine_folder: Path
+    rinex_folder: Path, tec_folder: Path, quarantine_folder: Path, day: str
 ) -> None:
     tec_folder.mkdir(parents=True, exist_ok=True)
     files = list_files(rinex_folder, "o")
@@ -141,17 +172,26 @@ def process_rinex_to_pickle(
     for i, rinex_path in enumerate(files, start=1):
         out_path = tec_folder / f"{rinex_path.stem}.pkl"
         if out_path.exists():
-            log.debug("[%d/%d] SKIP %s (pickle already exists)", i, total, rinex_path.name)
+            log.debug(
+                "%s | [%d/%d] SKIP %s (pickle already exists)",
+                day, i, total, rinex_path.name, extra=station_extra(rinex_path),
+            )
             continue
 
         try:
             dic = rnx.read_rinex(str(rinex_path))
             with open(out_path, "wb") as f:
                 pickle.dump(dic, f)
-            log.info("[%d/%d] OK   %s", i, total, rinex_path.name)
+            log.info(
+                "%s | [%d/%d] OK   %s", day, i, total, rinex_path.name,
+                extra=station_extra(rinex_path),
+            )
         except Exception:
-            log.exception("[%d/%d] FAIL %s", i, total, rinex_path.name)
-            quarantine_file(rinex_path, quarantine_folder)
+            log.exception(
+                "%s | [%d/%d] FAIL %s", day, i, total, rinex_path.name,
+                extra=station_extra(rinex_path),
+            )
+            quarantine_file(rinex_path, quarantine_folder, day, i, total)
 
 
 def run(year: int, doy: int, debug: bool = False) -> None:
@@ -159,12 +199,13 @@ def run(year: int, doy: int, debug: bool = False) -> None:
     tec_folder = tec_dir(year, doy)
 
     quarantine_folder = quarantine_dir_for(rinex_folder)
+    day = date_str(year, doy)
 
     lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
 
     lg.info(
         "########## %d / doy %03d (%s) | 3.1 %s ##########",
-        year, doy, date_str(year, doy),
+        year, doy, day,
         "DEBUG (quarantine)" if debug else "RINEX → pickle",
     )
     lg.info("  RINEX:      %s", rinex_folder)
@@ -179,7 +220,7 @@ def run(year: int, doy: int, debug: bool = False) -> None:
         lg.warning("Input folder does not exist: %s", rinex_folder)
         return
 
-    process_rinex_to_pickle(rinex_folder, tec_folder, quarantine_folder)
+    process_rinex_to_pickle(rinex_folder, tec_folder, quarantine_folder, day)
 
 
 # --------------------------------------------------------------------------
