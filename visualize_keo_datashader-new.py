@@ -478,8 +478,10 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=Fal
     }
     deg_per_px = resolutions.get(resolution, 0.1)
 
-    ipp_folder      = dtec_ipp_dir(year, doy)
-    keograms_folder = dtec_keogram_dir(year, doy)
+    # Etapa 1: olha SOMENTE os keogramas (.nc). A pasta de IPP nem é
+    # resolvida aqui, para que keogramas copiados de outra máquina (sem os
+    # parquets de IPP) funcionem normalmente.
+    keograms_folder = Path(dtec_keogram_dir(year, doy))
 
     # --- Output paths ---
     lat_path = keograms_folder / f"keogram_lat_{year}_{doy:03d}_{resolution}.nc"
@@ -489,9 +491,17 @@ def main_build(year, doy, resolution="low", dtec_col="dtec_10min", overwrite=Fal
     lon_exists = lon_path.exists()
 
     if lat_exists and lon_exists and not overwrite:
-        print(f"Both grids already exist for {year} DOY {doy:03d} ({resolution}). Skipping build.")
+        print(f"Both grids already exist for {year} DOY {doy:03d} ({resolution}). "
+              f"Skipping build (IPP not needed).")
         return
 
+    # Chegou aqui: falta pelo menos um grid (ou overwrite=True) -> precisa dos IPP.
+    for label, path, exists in (("lat", lat_path, lat_exists), ("lon", lon_path, lon_exists)):
+        if not exists:
+            print(f"Grid {label} not found: {path}")
+
+    # Etapa 2: só agora a pasta de IPP é consultada.
+    ipp_folder = dtec_ipp_dir(year, doy)
     parquet_files = sorted(Path(ipp_folder).glob(f"*_dtecIPP_{year}{doy}.parquet"))
     if not parquet_files:
         print(f"No IPP files found in {ipp_folder}")
@@ -604,10 +614,32 @@ if __name__ == "__main__":
         print("Running in IDE Manual Mode...")
         year, doy = 2021, 296
         
+        #Weak Thunderstorms
+        year, doy = 2024, 216
+        year, doy = 2024, 218
+        year, doy = 2024, 224
+        # year, doy = 2024, 225
+        # year, doy = 2024, 226
+        # year, doy = 2024, 228
+        # year, doy = 2024, 229
+        # year, doy = 2024, 231
+        # year, doy = 2024, 232
+        # year, doy = 2024, 239
+        # year, doy = 2024, 241
+        # year, doy = 2024, 242
+        # year, doy = 2024, 246
+        # year, doy = 2024, 247
+        # year, doy = 2024, 251
+        # year, doy = 2024, 260
+        # year, doy = 2026, 166
+        # year, doy = 2026, 167
+        # year, doy = 2026, 172
+        # year, doy = 2026, 174
+        
         # resolution = 'low'
         resolution = 'high'
         resolution = 'veryhigh'
-        # resolution = 'ultra'
+        resolution = 'ultra'
 
         # Vertical smoothing window, in pixels (None = off)
         # smooth_size = None
