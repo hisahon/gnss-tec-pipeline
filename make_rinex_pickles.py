@@ -41,10 +41,13 @@ Use it to investigate why the quarantined files fail.
    ``--doy`` filters still apply, and each day's quarantine folder is
    ``DB_ROOT/gnss/quarantine/{year}/{doy}``.
 3. The script reads the ``.??o`` files straight from quarantine, without
-   writing pickles and without moving files. The exception is NOT caught: it
-   is raised on the first file that fails. Use ``%debug`` in the console to
-   inspect the point of failure (or run with Spyder's debugger).
-4. Set ``DEBUG_QUARANTINE = False`` again when you are done.
+   writing pickles. A file that reads without errors is MOVED back to
+   ``DB_ROOT/gnss/rinex/{year}/{doy}`` (replacing a file with the same name
+   if one is already there); a file that fails stays in quarantine. The exception is NOT caught: it is raised on the first file
+   that fails. Use ``%debug`` in the console to inspect the point of failure
+   (or run with Spyder's debugger).
+4. Set ``DEBUG_QUARANTINE = False`` again when you are done and run the script
+   normally: the files moved back to ``rinex`` are converted to pickles.
 
 In the terminal (or with Spyder's "Execute in an external system terminal")
 the constant is ignored, with a warning in the log, and normal processing
@@ -63,7 +66,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-from shared.config import rinex_dir, tec_dir, setup_logging
+from shared.config import rinex_dir, tec_dir, quarentine_dir, setup_logging
 import shared.rinex as rnx
 
 from shared.pipeline_utils import build_arg_parser, resolve_pairs
@@ -96,7 +99,10 @@ def station_extra(rinex_path: Path) -> dict:
 
 # Set to True manually to debug the RINEX files sitting in quarantine.
 # Only honored inside Spyder; ignored in the terminal.
+RefFolder = 'rinexRAWReferenceFolder'
 DEBUG_QUARANTINE = False
+if DEBUG_QUARANTINE:
+    RefFolder = 'quarentineFolder'
 
 # Upper limit for ``--workers`` (terminal only).
 MAX_WORKERS = 6
@@ -148,12 +154,15 @@ def quarantine_file(
         )
 
 
-def debug_quarantine(quarantine_folder: Path) -> None:
-    """Read the RINEX files straight from quarantine, with no side effects.
+def debug_quarantine(quarantine_folder: Path, rinex_folder: Path) -> None:
+    """Read the RINEX files straight from quarantine.
 
-    Does not write pickles and does not move files. The exception is NOT
-    caught: it is raised on the first file that fails, so it can be debugged
-    (for example with ``%debug`` in the Spyder console).
+    Does not write pickles. A file that reads without errors is MOVED back to
+    ``rinex_folder`` (its original location), replacing any file with the same
+    name that is already there, ready for the normal run. The
+    exception is NOT caught: it is raised on the first file that fails (that
+    file stays in quarantine), so it can be debugged (for example with
+    ``%debug`` in the Spyder console).
     """
     if not quarantine_folder.exists():
         log.warning("DEBUG: quarantine folder does not exist: %s", quarantine_folder)
@@ -165,8 +174,27 @@ def debug_quarantine(quarantine_folder: Path) -> None:
 
     for i, rinex_path in enumerate(files, start=1):
         log.info("DEBUG [%d/%d] reading %s", i, total, rinex_path.name)
-        rnx.read_rinex(str(rinex_path))
-        log.info("DEBUG [%d/%d] OK %s (read without errors)", i, total, rinex_path.name)
+        rnx.read_rinex(str(rinex_path))   # raises on failure → file stays put
+
+        # Reached only if the read succeeded: move it back to the rinex folder,
+        # replacing a file with the same name if there is one. Copy to a temp
+        # name and os.replace() it, so the old file is never lost half-way.
+        dest = rinex_folder / rinex_path.name
+        replaced = dest.exists()
+
+        rinex_folder.mkdir(parents=True, exist_ok=True)
+        tmp_dest = dest.with_name(dest.name + ".tmp")
+        try:
+            shutil.copy2(str(rinex_path), str(tmp_dest))
+            os.replace(tmp_dest, dest)
+        finally:
+            tmp_dest.unlink(missing_ok=True)
+        rinex_path.unlink()
+
+        log.info(
+            "DEBUG [%d/%d] OK %s → %s%s", i, total, rinex_path.name, rinex_folder,
+            " (replaced the existing file)" if replaced else "",
+        )
 
 
 def process_rinex_to_pickle(
@@ -211,7 +239,7 @@ def run(year: int, doy: int, debug: bool = False) -> None:
     rinex_folder = rinex_dir(year, doy)
     tec_folder = tec_dir(year, doy)
 
-    quarantine_folder = quarantine_dir_for(rinex_folder)
+    quarantine_folder = quarentine_dir(year, doy)
     day = date_str(year, doy)
 
     lg = logging.LoggerAdapter(log, {"year": year, "doy": doy})
@@ -221,12 +249,14 @@ def run(year: int, doy: int, debug: bool = False) -> None:
         year, doy, day,
         "DEBUG (quarantine)" if debug else "RINEX → pickle",
     )
-    lg.info("  RINEX:      %s", rinex_folder)
-    lg.info("  Pickle:     %s", tec_folder)
+    # lg.info("  RINEX:      %s", rinex_folder)
+    # lg.info("  Pickle:     %s", tec_folder)
     lg.info("  Quarantine: %s", quarantine_folder)
+    if debug:
+        lg.info("  Back to:    %s", rinex_folder)
 
     if debug:
-        debug_quarantine(quarantine_folder)
+        debug_quarantine(quarantine_folder, rinex_folder)
         return
 
     if not rinex_folder.exists():
@@ -278,8 +308,8 @@ if __name__ == "__main__":
     elif workers and workers > MAX_WORKERS:
         log.warning("--workers %d capped at %d", workers, MAX_WORKERS)
         workers = MAX_WORKERS
-
-    pairs = resolve_pairs(args, 'rinexRAWReferenceFolder')
+    
+    pairs = resolve_pairs(args, RefFolder)
     log.info("Found %d year/doy folders to process", len(pairs))
 
     if workers and workers > 1 and len(pairs) > 1:

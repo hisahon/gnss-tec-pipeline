@@ -42,6 +42,9 @@ def crinex_dir(year: int, doy: int) -> Path:
 def rinex_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "gnss" / "rinex" / f"{year}" / f"{doy:03d}"
 
+def quarentine_dir(year: int, doy: int) -> Path:
+    return DB_ROOT / "gnss" / "quarantine" / f"{year}" / f"{doy:03d}"
+
 
 def ephemeris_dir(year: int, doy: int) -> Path:
     return DB_ROOT / "gnss" / "ephemeris" / f"{year}" / f"{doy:03d}"

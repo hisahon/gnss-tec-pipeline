@@ -19,7 +19,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from shared.config import crinex_dir, rinex_dir, tec_dir, tec_pc_dir
+from shared.config import crinex_dir, rinex_dir, tec_dir, tec_pc_dir, quarentine_dir
 
 log = logging.getLogger("process.utils")
 
@@ -51,6 +51,10 @@ def _folder_root(referencefolder: str) -> Path:
     
     if referencefolder == "tecpcreferencefolder":
         return tec_pc_dir(2000, 1).parent.parent
+    
+    if referencefolder == "quarentinefolder":
+        return quarentine_dir(2000, 1).parent.parent
+    
     
 
 def discover_year_doys(

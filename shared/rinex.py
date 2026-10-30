@@ -58,7 +58,7 @@ def system_names(key):
     return gnss_dict.get(key)
 
 def read_rinex(fileName):
-    with open(fileName, "r") as rinFile:
+    with open(fileName, "r", encoding="utf-8", errors="replace") as rinFile:
         for line in rinFile:
             if line[60:].strip() == 'RINEX VERSION / TYPE':
                 version = float(line[:9].rstrip())
@@ -76,13 +76,13 @@ def read_rinex(fileName):
 
 
 
-def read_header(fileName):
+def read_header(rinFile, fileName):
     
     #Station Name for the header:
     station_name = os.path.basename(fileName)[0:4]
     
-    # Open the RINEX file for reading
-    rinFile = open(fileName, "r")
+    # # Open the RINEX file for reading
+    # rinFile = open(fileName, "r")
     
     # Read the first line of the file
     currentLine = rinFile.readline()
@@ -92,7 +92,7 @@ def read_header(fileName):
     gnss_nobs = []  # Number of observed types for each GNSS system
     obs_type = []   # List to store observed types
     obs_v2 = [] #List to store observed types rinex v2
-    interval = np.nan  # Variable to store the observation interval (initially set to NaN)
+    # interval = np.nan  # Variable to store the observation interval (initially set to NaN)
     
     # Loop until 'END OF HEADER' is encountered
     while currentLine[60:].rstrip() != 'END OF HEADER':
@@ -136,8 +136,8 @@ def read_header(fileName):
         if i > 0:
             gnss_obs[cons] = obs_type[sum(gnss_nobs[:i]):sum(gnss_nobs[:i+1])]
 
-    # Close the RINEX file
-    rinFile.close()
+    # # Close the RINEX file
+    # rinFile.close()
     
     sta_xyz = np.array(sta_xyz)
     sta_ellip=geocentric2geodetic(sta_xyz) #[lat,lon,height]
@@ -319,138 +319,142 @@ def merge_signals(df, new_column_name='MergedColumn'):
     
 #%%
 def read_v2(fileName):
-    rinFile = open(fileName, "r")
-    header_info = read_header(fileName)
     
-    for currentLine in rinFile:
-        if currentLine[60:].strip() == 'END OF HEADER':
-            currentLine = rinFile.readline()
-            break
     
-    obss = header_info['gnss_obs']
-    numProd = len(obss)
-
-            
-    arr=[] #-Aqui e aonde sera armazenado os valores dos produtos 
-            
-    cccc=0
-    break_all=False
-    while currentLine != '':
-#%%
-        #Removendo um bloco de texto especifico de uns arquivos rinex
-        if (currentLine[26:29]=='  3') or (currentLine[26:29]=='  4') or (currentLine[26:29]=='  5'):
-            currentLine = rinFile.readline()
-            cccc+=1
- 
-            while ((currentLine[26:29] != '  0') or (currentLine[60:67] == 'COMMENT')) and (currentLine != ''):
-                # print(cccc, currentLine)
-                currentLine = rinFile.readline()
-                cccc+=1
+    with open(fileName, "r", encoding="utf-8", errors="replace") as rinFile:
+        header_info = read_header(rinFile, fileName)
+       
+    
+        # for currentLine in rinFile:
+        #     if currentLine[60:].strip() == 'END OF HEADER':
+        #         currentLine = rinFile.readline()
+        #         break
+        
+        currentLine = rinFile.readline()
+        obss = header_info['gnss_obs']
+        numProd = len(obss)
+    
                 
+        arr=[] #-Aqui e aonde sera armazenado os valores dos produtos 
                 
-                if currentLine == '':
-                    break_all = True
-        #caso os comentarios estiverem no ultimo bloco, eu preciso de outro comando pra parar o while
-        if break_all:
-            break
-#%%       
-        try:
-            numSats = int(currentLine[30:32])
-        
-        
-        
-            if currentLine[32:33].isalpha() == True and numSats == 0:
+        cccc=0
+        break_all=False
+        while currentLine != '':
+    #%%
+            #Removendo um bloco de texto especifico de uns arquivos rinex
+            if (currentLine[26:29]=='  3') or (currentLine[26:29]=='  4') or (currentLine[26:29]=='  5'):
                 currentLine = rinFile.readline()
                 cccc+=1
-            
-            
-            if currentLine[32:33].isalpha() == True and numSats <= 11 and numSats > 0:
-                year = int(currentLine[1:3])
-                month = int(currentLine[4:6])
-                day = int(currentLine[7:9])
-                hour = int(currentLine[10:12])
-                mm = int(currentLine[13:15])
-                sec = float(currentLine[16:26])
-    
-                # numSats = int(currentLine[30:32])
-                epochPRN = []
-    
-                # if numSats < 12:
-                for i in range(numSats):
-                    epochPRN.append(currentLine[32+i*3:35+i*3])
-                currentLine = rinFile.readline()
-                cccc+=1
+     
+                while ((currentLine[26:29] != '  0') or (currentLine[60:67] == 'COMMENT')) and (currentLine != ''):
+                    # print(cccc, currentLine)
+                    currentLine = rinFile.readline()
+                    cccc+=1
                     
-            if currentLine[32:33].isalpha() == True and numSats > 11:
-                year = int(currentLine[1:3])
-                month = int(currentLine[4:6])
-                day = int(currentLine[7:9])
-                hour = int(currentLine[10:12])
-                mm = int(currentLine[13:15])
-                sec = float(currentLine[16:26])
-    
-                # numSats = int(currentLine[30:32])
-                epochPRN = []
-    
-                if numSats <= 12:
+                    
+                    if currentLine == '':
+                        break_all = True
+            #caso os comentarios estiverem no ultimo bloco, eu preciso de outro comando pra parar o while
+            if break_all:
+                break
+    #%%       
+            try:
+                numSats = int(currentLine[30:32])
+            
+            
+            
+                if currentLine[32:33].isalpha() == True and numSats == 0:
+                    currentLine = rinFile.readline()
+                    cccc+=1
+                
+                
+                if currentLine[32:33].isalpha() == True and numSats <= 11 and numSats > 0:
+                    year = int(currentLine[1:3])
+                    month = int(currentLine[4:6])
+                    day = int(currentLine[7:9])
+                    hour = int(currentLine[10:12])
+                    mm = int(currentLine[13:15])
+                    sec = float(currentLine[16:26])
+        
+                    # numSats = int(currentLine[30:32])
+                    epochPRN = []
+        
+                    # if numSats < 12:
                     for i in range(numSats):
                         epochPRN.append(currentLine[32+i*3:35+i*3])
                     currentLine = rinFile.readline()
                     cccc+=1
-                    
-                if numSats > 12:
-                    for j in range(int(numSats/12)):
-                        for i in range(12):
+                        
+                if currentLine[32:33].isalpha() == True and numSats > 11:
+                    year = int(currentLine[1:3])
+                    month = int(currentLine[4:6])
+                    day = int(currentLine[7:9])
+                    hour = int(currentLine[10:12])
+                    mm = int(currentLine[13:15])
+                    sec = float(currentLine[16:26])
+        
+                    # numSats = int(currentLine[30:32])
+                    epochPRN = []
+        
+                    if numSats <= 12:
+                        for i in range(numSats):
                             epochPRN.append(currentLine[32+i*3:35+i*3])
                         currentLine = rinFile.readline()
                         cccc+=1
                         
-                    if numSats % 12 != 0:
-                        for i in range(numSats % 12):
-                            epochPRN.append(currentLine[32+i*3:35+i*3])
-                        currentLine = rinFile.readline()
-                        cccc+=1
-                    
-    
-            if numSats != 0:
-                time=datetime(year+2000,month,day,hour,mm,int(sec))
-    
-            #-Fazendo a leitura dos produtos
-            if numSats == 0:
-                currentLine = rinFile.readline()
-                cccc+=1
-    
-    
-            if numSats != 0:
-                for m, prn in enumerate(epochPRN):
-            #         for k in range(numSats):
-                    row=[]
-                    row.append(time)
-                    row.append(prn)
-                    if numProd <=5:
-                        for i in range(numProd):
-                            row.append(currentLine[i*16+1:i*16+14].lstrip())
-                        arr.append(row)
-                        currentLine = rinFile.readline()
-                        cccc+=1
-                        
-                    if numProd > 5:
-                        
-                        for k in range(int(numProd / 5)):
-                            for i in range(5):
-                                row.append(currentLine[i*16+1:i*16+14].lstrip())
+                    if numSats > 12:
+                        for j in range(int(numSats/12)):
+                            for i in range(12):
+                                epochPRN.append(currentLine[32+i*3:35+i*3])
                             currentLine = rinFile.readline()
                             cccc+=1
                             
-                        if (numProd % 5) != 0:
-                            for i in range(numProd % 5):
-                                row.append(currentLine[i*16+1:i*16+14].lstrip())
+                        if numSats % 12 != 0:
+                            for i in range(numSats % 12):
+                                epochPRN.append(currentLine[32+i*3:35+i*3])
                             currentLine = rinFile.readline()
                             cccc+=1
-                        arr.append(row)
-        except:
-            print('#{}# Linha {} File {}'.format(currentLine,cccc,fileName))
-            # break
+                        
+        
+                if numSats != 0:
+                    time=datetime(year+2000,month,day,hour,mm,int(sec))
+        
+                #-Fazendo a leitura dos produtos
+                if numSats == 0:
+                    currentLine = rinFile.readline()
+                    cccc+=1
+        
+        
+                if numSats != 0:
+                    for m, prn in enumerate(epochPRN):
+                #         for k in range(numSats):
+                        row=[]
+                        row.append(time)
+                        row.append(prn)
+                        if numProd <=5:
+                            for i in range(numProd):
+                                row.append(currentLine[i*16+1:i*16+14].lstrip())
+                            arr.append(row)
+                            currentLine = rinFile.readline()
+                            cccc+=1
+                            
+                        if numProd > 5:
+                            
+                            for k in range(int(numProd / 5)):
+                                for i in range(5):
+                                    row.append(currentLine[i*16+1:i*16+14].lstrip())
+                                currentLine = rinFile.readline()
+                                cccc+=1
+                                
+                            if (numProd % 5) != 0:
+                                for i in range(numProd % 5):
+                                    row.append(currentLine[i*16+1:i*16+14].lstrip())
+                                currentLine = rinFile.readline()
+                                cccc+=1
+                            arr.append(row)
+            except:
+                print('#{}# Linha {} File {}'.format(currentLine,cccc,fileName))
+                # break
 
     cname = ['horario', 'prn'] + obss
     #-Salvando os arquivos em .csv
